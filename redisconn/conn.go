@@ -46,10 +46,11 @@ type Opts struct {
 	// If it is <= 0 or >= IOTimeout, then IOTimeout
 	// If IOTimeout is disabled, then 5 seconds used (but without affect on ReconnectPause)
 	DialTimeout time.Duration
-	// ReconnectPause is a pause after failed connection attempt before next one.
-	// If ReconnectPause < 0, then no reconnection will be performed.
-	// If ReconnectPause == 0, then DialTimeout * 2 is used
-	ReconnectPause time.Duration
+	// ReconnectThrottle determines how much time to wait after a failed connection attempt before the next one.
+	// If ReconnectThrottle is nil, then a throttle of DialTimeout * 2 is used.
+	// If ReconnectThrottle is not nil, then the user supplied throttle is used.
+	// If ReconnectThrottle is NoReconnect, then no reconnection will be performed.
+	ReconnectThrottle ReconnectThrottle
 	// TCPKeepAlive - KeepAlive parameter for net.Dialer
 	// default is IOTimeout / 3
 	TCPKeepAlive time.Duration
@@ -132,8 +133,8 @@ func Connect(ctx context.Context, addr string, opts Opts) (conn *Connection, err
 		conn.opts.DialTimeout = conn.opts.IOTimeout
 	}
 
-	if conn.opts.ReconnectPause == 0 {
-		conn.opts.ReconnectPause = conn.opts.DialTimeout * 2
+	if conn.opts.ReconnectThrottle == nil {
+		conn.opts.ReconnectThrottle = NewDurationReconnect(conn.opts.DialTimeout * 2)
 	}
 
 	if conn.opts.TCPKeepAlive == 0 {
@@ -159,9 +160,12 @@ func Connect(ctx context.Context, addr string, opts Opts) (conn *Connection, err
 
 	if !conn.opts.AsyncDial {
 		if err = conn.createConnection(false, nil); err != nil {
-			if opts.ReconnectPause < 0 {
-				return nil, err
+			if opts.ReconnectThrottle != nil {
+				if _, ok := opts.ReconnectThrottle.(NoReconnect); ok {
+					return nil, err
+				}
 			}
+
 			if cer, ok := err.(*errorx.Error); ok && cer.HasTrait(ErrTraitInitPermanent) {
 				return nil, err
 			}
@@ -665,7 +669,12 @@ func (conn *Connection) createConnection(reconnect bool, wg *sync.WaitGroup) err
 		}
 		conn.mutex.Unlock()
 		// do not spend CPU on useless attempts
-		time.Sleep(now.Add(conn.opts.ReconnectPause).Sub(time.Now()))
+		if conn.opts.ReconnectThrottle != nil {
+			if _, ok := conn.opts.ReconnectThrottle.(NoReconnect); !ok {
+				t := conn.opts.ReconnectThrottle.GetBackoff(conn, now)
+				time.Sleep(now.Add(t).Sub(time.Now()))
+			}
+		}
 		conn.mutex.Lock()
 	}
 	if wg != nil {
@@ -702,6 +711,10 @@ func (conn *Connection) closeConnection(neterr *errorx.Error, forever bool) {
 	if forever {
 		atomic.StoreUint32(&conn.state, connClosed)
 		conn.report(LogContextClosed{Error: neterr.Cause()})
+		if conn.opts.ReconnectThrottle != nil {
+			// have throttle stop tracking the connection
+			conn.opts.ReconnectThrottle.ConnClosed(conn)
+		}
 	} else {
 		atomic.StoreUint32(&conn.state, connDisconnected)
 		conn.report(LogDisconnected{
@@ -774,9 +787,12 @@ func (conn *Connection) reconnect(neterr *errorx.Error, c net.Conn) {
 	if atomic.LoadUint32(&conn.state) == connClosed {
 		return
 	}
-	if conn.opts.ReconnectPause < 0 {
-		conn.Close()
-		return
+
+	if conn.opts.ReconnectThrottle != nil {
+		if _, ok := conn.opts.ReconnectThrottle.(NoReconnect); ok {
+			conn.Close()
+			return
+		}
 	}
 	if conn.c == c {
 		conn.closeConnection(neterr, false)
