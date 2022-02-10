@@ -80,7 +80,7 @@ func (cl *Cluster) WaitClusterOk() {
 	t := time.AfterFunc(10*time.Second, func() { panic("cluster didn't stabilize") })
 	defer t.Stop()
 	for !cl.ClusterOk() {
-		if i++; i == 10 {
+		if i++; i == 4 {
 			cl.AttemptFailover()
 		}
 		time.Sleep(1 * time.Second)
