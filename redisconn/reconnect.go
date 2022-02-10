@@ -78,8 +78,9 @@ func (e *ExpBackoffReconnect) GetBackoff(conn *Connection, now time.Time) time.D
 	var tracker = e.trackers[conn]
 	if tracker == nil {
 		tracker = &timeTracker{
-			backoff: e.base,
-			cap:     e.getNewCap(),
+			backoff:    e.base,
+			cap:        e.getNewCap(),
+			updateTime: now,
 		}
 
 		e.trackers[conn] = tracker
@@ -87,10 +88,9 @@ func (e *ExpBackoffReconnect) GetBackoff(conn *Connection, now time.Time) time.D
 		// Reset the sleep time back to base if enough time has passed
 		if tracker.updateTime.Add(e.reset).Before(now) {
 			tracker.backoff = e.base
+			tracker.updateTime = now
 		}
 	}
-
-	tracker.updateTime = now
 
 	// Pick new backoff
 	maxBackoff := 3 * tracker.backoff
