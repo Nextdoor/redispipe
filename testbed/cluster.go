@@ -34,6 +34,7 @@ func NewCluster(startport uint16) *Cluster {
 			"--cluster-slave-validity-factor", "1000",
 			"--slave-serve-stale-data", "yes",
 			"--cluster-require-full-coverage", "no",
+			"--cluster-allow-replica-migration", "no",
 		}
 		cl.Node[i].Start()
 		cl.Node[i].SetupNodeId()
@@ -212,6 +213,7 @@ func (cl *Cluster) StartSeventhNode() {
 		"--cluster-slave-validity-factor", "1000",
 		"--slave-serve-stale-data", "yes",
 		"--cluster-require-full-coverage", "no",
+		"--cluster-allow-replica-migration", "no",
 	}
 	cl.Node[6].Start()
 	cl.Node[6].SetupNodeId()

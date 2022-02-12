@@ -1,5 +1,5 @@
-REDIS_ARCHIVE ?= https://github.com/joomcode/redis/archive
-REDIS_VERSION ?= debian-5.0.7-fixes
+REDIS_ARCHIVE ?= https://github.com/redis/redis/archive
+REDIS_VERSION ?= 6.2.6
 
 test: testcluster testconn testredis
 
