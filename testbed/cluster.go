@@ -34,6 +34,7 @@ func NewCluster(startport uint16) *Cluster {
 			"--cluster-slave-validity-factor", "1000",
 			"--slave-serve-stale-data", "yes",
 			"--cluster-require-full-coverage", "no",
+			"--cluster-allow-replica-migration", "no",
 		}
 		cl.Node[i].Start()
 		cl.Node[i].SetupNodeId()
@@ -77,10 +78,10 @@ func (cl *Cluster) Start() {
 // WaitClusterOk wait for cluster configuration to be stable.
 func (cl *Cluster) WaitClusterOk() {
 	i := 0
-	t := time.AfterFunc(20*time.Second, func() { panic("cluster didn't stabilize") })
+	t := time.AfterFunc(10*time.Second, func() { panic("cluster didn't stabilize") })
 	defer t.Stop()
 	for !cl.ClusterOk() {
-		if i++; i == 20 {
+		if i++; i == 10 {
 			cl.AttemptFailover()
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -212,6 +213,7 @@ func (cl *Cluster) StartSeventhNode() {
 		"--cluster-slave-validity-factor", "1000",
 		"--slave-serve-stale-data", "yes",
 		"--cluster-require-full-coverage", "no",
+		"--cluster-allow-replica-migration", "no",
 	}
 	cl.Node[6].Start()
 	cl.Node[6].SetupNodeId()
