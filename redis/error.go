@@ -21,6 +21,9 @@ var (
 	// ErrContextClosed - context were explicitly closed (or connection / cluster were shut down)
 	ErrContextClosed = Errors.NewType("connection_context_closed", ErrTraitNotSent)
 
+	// ErrRequestCircuitBroken - request was circuit broken and not sent
+	ErrRequestCircuitBroken = Errors.NewType("request_circuit_broken", ErrTraitNotSent)
+
 	// ErrTraitConnectivity marks all networking and io errors
 	ErrTraitConnectivity = errorx.RegisterTrait("network")
 

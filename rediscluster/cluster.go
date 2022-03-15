@@ -525,11 +525,21 @@ var requestPool = sync.Pool{New: func() interface{} { return &request{} }}
 
 func (r *request) resolve(res interface{}) {
 	if r.cb != &dumb {
+		if err := r.cb.Cancelled(); err != nil {
+			r.lastconn.Report(false)
+			r.cb.Resolve(r.c.errWrap(redis.ErrRequestCircuitBroken, err), r.off)
+			return
+		}
+
 		if err := redis.AsErrorx(res); err != nil {
 			err = withNewProperty(err, redis.EKRequest, r.req)
 			err = r.c.addProps(err)
 			res = err
+			r.lastconn.Report(false)
+		} else {
+			r.lastconn.Report(true)
 		}
+
 		r.cb.Resolve(res, r.off)
 	}
 	*r = request{}

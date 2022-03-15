@@ -12,6 +12,8 @@ import (
 	"github.com/joomcode/errorx"
 
 	"github.com/joomcode/redispipe/redis"
+
+	circuit "github.com/cockroachdb/circuitbreaker"
 )
 
 const (
@@ -31,6 +33,10 @@ const (
 	PingMaxLatency         = 10 * time.Second
 	PingLatencyGranularity = 10 * time.Microsecond
 )
+
+type CircuitBreakerFactoryI interface {
+	NewBreaker() *circuit.Breaker
+}
 
 // Opts - options for Connection
 type Opts struct {
@@ -68,6 +74,8 @@ type Opts struct {
 	// It will allow to use this connector in script like (ie single threaded) environment
 	// where it is ok to use blocking commands and pipelining gives no gain.
 	ScriptMode bool
+	// CircuitBreakerFactory - factory to retrieve a CircuitBreaker from
+	CircuitBreakerFactory CircuitBreakerFactoryI
 }
 
 // Connection is implementation of redis.Sender which represents single connection to single redis instance.
@@ -92,6 +100,8 @@ type Connection struct {
 
 	firstConn chan struct{}
 	opts      Opts
+
+	cb *circuit.Breaker
 }
 
 type oneconn struct {
@@ -117,6 +127,11 @@ func Connect(ctx context.Context, addr string, opts Opts) (conn *Connection, err
 		addr: addr,
 		opts: opts,
 	}
+
+	if opts.CircuitBreakerFactory != nil {
+		conn.cb = opts.CircuitBreakerFactory.NewBreaker()
+	}
+
 	conn.ctx, conn.cancel = context.WithCancel(ctx)
 
 	conn.futsignal = make(chan struct{}, 1)
@@ -190,6 +205,28 @@ func Connect(ctx context.Context, addr string, opts Opts) (conn *Connection, err
 	go conn.control()
 
 	return conn, nil
+}
+
+// Report signals success or failure back to the circuit breaker if one is configured.
+func (conn *Connection) Report(success bool) {
+	if conn.cb == nil {
+		return
+	}
+
+	if success {
+		conn.cb.Success()
+	} else {
+		conn.cb.Fail(nil)
+	}
+}
+
+// Ready provides feedback from circuit breaker if request should continue.
+func (conn *Connection) Ready() bool {
+	if conn.cb == nil {
+		return true
+	}
+
+	return conn.cb.Ready()
 }
 
 // Ctx returns context of this connection
@@ -305,12 +342,18 @@ func (conn *Connection) SendAsk(req Request, cb Future, n uint64, asking bool) {
 	if cb == nil {
 		cb = &dumb
 	}
+
 	if err := conn.doSend(req, cb, n, asking); err != nil {
 		cb.Resolve(err, n)
 	}
 }
 
 func (conn *Connection) doSend(req Request, cb Future, n uint64, asking bool) *errorx.Error {
+	// Check if connection has not been circuit broken
+	if !conn.Ready() {
+		return conn.err(redis.ErrRequestCircuitBroken)
+	}
+
 	if err := cb.Cancelled(); err != nil {
 		return conn.errWrap(redis.ErrRequestCancelled, err)
 	}
@@ -420,6 +463,11 @@ func (conn *Connection) SendBatchFlags(requests []Request, cb Future, start uint
 }
 
 func (conn *Connection) doSendBatch(requests []Request, cb Future, start uint64, flags int) *errorx.Error {
+	// Check if connection has not been circuit broken
+	if !conn.Ready() {
+		return conn.err(redis.ErrRequestCircuitBroken)
+	}
+
 	if err := cb.Cancelled(); err != nil {
 		return conn.errWrap(redis.ErrRequestCancelled, err)
 	}
