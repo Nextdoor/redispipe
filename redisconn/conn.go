@@ -35,7 +35,7 @@ const (
 )
 
 type CircuitBreakerFactoryI interface {
-	NewBreaker() *circuit.Breaker
+	NewBreaker(conn *Connection) *circuit.Breaker
 }
 
 // Opts - options for Connection
@@ -129,7 +129,7 @@ func Connect(ctx context.Context, addr string, opts Opts) (conn *Connection, err
 	}
 
 	if opts.CircuitBreakerFactory != nil {
-		conn.cb = opts.CircuitBreakerFactory.NewBreaker()
+		conn.cb = opts.CircuitBreakerFactory.NewBreaker(conn)
 	}
 
 	conn.ctx, conn.cancel = context.WithCancel(ctx)
