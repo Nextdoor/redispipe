@@ -475,6 +475,11 @@ func (c *Cluster) SendWithPolicy(policy ReplicaPolicyEnum, req Request, cb Futur
 		return
 	}
 
+	if !conn.Ready() {
+		cb.Resolve(c.err(redis.ErrRequestCircuitBroken), off)
+		return
+	}
+
 	r := requestPool.Get().(*request)
 	*r = request{
 		c:      c,

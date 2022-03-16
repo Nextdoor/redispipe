@@ -349,11 +349,6 @@ func (conn *Connection) SendAsk(req Request, cb Future, n uint64, asking bool) {
 }
 
 func (conn *Connection) doSend(req Request, cb Future, n uint64, asking bool) *errorx.Error {
-	// Check if connection has not been circuit broken
-	if !conn.Ready() {
-		return conn.err(redis.ErrRequestCircuitBroken)
-	}
-
 	if err := cb.Cancelled(); err != nil {
 		return conn.errWrap(redis.ErrRequestCancelled, err)
 	}
@@ -463,11 +458,6 @@ func (conn *Connection) SendBatchFlags(requests []Request, cb Future, start uint
 }
 
 func (conn *Connection) doSendBatch(requests []Request, cb Future, start uint64, flags int) *errorx.Error {
-	// Check if connection has not been circuit broken
-	if !conn.Ready() {
-		return conn.err(redis.ErrRequestCircuitBroken)
-	}
-
 	if err := cb.Cancelled(); err != nil {
 		return conn.errWrap(redis.ErrRequestCancelled, err)
 	}
@@ -566,6 +556,7 @@ func (conn *Connection) dial() error {
 	if timeout <= 0 || timeout > 5*time.Second {
 		timeout = 5 * time.Second
 	}
+
 	if address[0] == '.' || address[0] == '/' {
 		network = "unix"
 	} else if address[0:7] == "unix://" {
