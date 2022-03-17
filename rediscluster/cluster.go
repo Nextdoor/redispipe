@@ -3,6 +3,7 @@ package rediscluster
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -333,6 +334,14 @@ func (c *Cluster) control() {
 func (c *Cluster) reloadMapping() error {
 	nodes, err := c.slotRangesAndInternalMasterOnly()
 	if err == nil {
+		for _, node := range nodes {
+			for j, addr := range node.Addrs {
+				if strings.HasPrefix(addr, ":") {
+					node.Addrs[j] = "127.0.0.1" + addr
+				}
+			}
+		}
+
 		c.updateMappings(nodes)
 	}
 	return err
