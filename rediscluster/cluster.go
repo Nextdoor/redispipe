@@ -52,7 +52,7 @@ const (
 	defaultCheckInterval = 5 * time.Second
 	defaultWaitToMigrate = 20 * time.Millisecond
 
-	forceInterval = 100 * time.Millisecond
+	defaultForceInterval = 100 * time.Millisecond
 
 	needConnected = iota
 	mayBeConnected
@@ -95,6 +95,10 @@ type Opts struct {
 	RoundRobinSeed RoundRobinSeed
 	// LatencyOrientedRR - when MasterAndSlaves is used, prefer hosts with lower latency
 	LatencyOrientedRR bool
+
+	// ForceReloadInterval - maximum frequency of forced cluster topology reload.
+	// default: 100 millisecond, min 100 millisecond, max: 2 minute, -1 to disable force reloading
+	ForceReloadInterval time.Duration
 }
 
 // Cluster is implementation of redis.Sender which represents connection to redis-cluster.
@@ -224,6 +228,12 @@ func NewCluster(ctx context.Context, initAddrs []string, opts Opts) (*Cluster, e
 		cluster.latencyAwareness = 1
 	}
 
+	if cluster.opts.ForceReloadInterval >= 0 && cluster.opts.ForceReloadInterval < 100*time.Millisecond {
+		cluster.opts.ForceReloadInterval = defaultForceInterval
+	} else if cluster.opts.ForceReloadInterval > 2*time.Minute {
+		cluster.opts.ForceReloadInterval = 2 * time.Minute
+	}
+
 	config := &clusterConfig{
 		nodes:   make(nodeMap),
 		shards:  make(shardMap),
@@ -304,6 +314,12 @@ func (c *Cluster) control() {
 	ft := time.NewTimer(time.Hour)
 	ft.Stop()
 
+	// Disable forced reload
+	reloadInterval := c.opts.ForceReloadInterval
+	if reloadInterval < 0 {
+		forceReload = nil
+	}
+
 	// main control loop
 	for {
 		select {
@@ -318,7 +334,7 @@ func (c *Cluster) control() {
 		case <-forceReload:
 			// forced mapping reload
 			forceReload = nil
-			ft.Reset(forceInterval)
+			ft.Reset(reloadInterval)
 			c.reloadMapping()
 		case <-ft.C:
 			// allow force reloading again
