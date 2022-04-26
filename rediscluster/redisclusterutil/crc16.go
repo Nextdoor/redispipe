@@ -3,6 +3,7 @@ package redisclusterutil
 // copied from github.com/mediocregopher/radix.v2/cluster/crc16.go
 
 import (
+	"bytes"
 	"strings"
 )
 
@@ -64,4 +65,16 @@ func Slot(key string) uint16 {
 		}
 	}
 	return CRC16([]byte(key)) % NumSlots
+}
+
+var lBrace = []byte("{")
+var rBrace = []byte("}")
+
+func ByteSlot(key []byte) uint16 {
+	if start := bytes.Index(key, lBrace); start >= 0 {
+		if end := bytes.Index(key[start+1:], rBrace); end > 0 {
+			key = key[start+1 : start+1+end]
+		}
+	}
+	return CRC16(key) % NumSlots
 }

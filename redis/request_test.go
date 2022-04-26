@@ -8,34 +8,43 @@ import (
 )
 
 func TestRequestKey(t *testing.T) {
-	var k string
+	var r Request
+	var k []byte
 	var ok bool
 
-	k, ok = Req("GET", 1).Key()
-	assert.Equal(t, "1", k)
+	r = Req("GET", 1)
+	k, ok = r.KeyByte()
+	assert.Equal(t, "1", string(k))
 	assert.True(t, ok)
 
-	_, ok = Req("GET").Key()
+	r = Req("GET")
+	k, ok = r.KeyByte()
 	assert.False(t, ok)
 
-	k, ok = Req("SET", 1, 2).Key()
-	assert.Equal(t, "1", k)
+	r = Req("SET", 1, 2)
+	k, ok = r.KeyByte()
+	assert.Equal(t, "1", string(k))
 	assert.True(t, ok)
 
-	k, ok = Req("RANDOMKEY").Key()
-	assert.Equal(t, "RANDOMKEY", k)
+	r = Req("RANDOMKEY")
+	k, ok = r.KeyByte()
+
+	assert.Equal(t, "RANDOMKEY", string(k))
 	assert.False(t, ok)
 
-	k, ok = Req("EVAL", "return KEY[1]", 1, 2, 3).Key()
-	assert.Equal(t, "2", k)
+	r = Req("EVAL", "return KEY[1]", 1, 2, 3)
+	k, ok = r.KeyByte()
+	assert.Equal(t, "2", string(k))
 	assert.True(t, ok)
 
-	k, ok = Req("EVALSHA", "1234abcdef", 1, 2, 3).Key()
-	assert.Equal(t, "2", k)
+	r = Req("EVALSHA", "1234abcdef", 1, 2, 3)
+	k, ok = r.KeyByte()
+	assert.Equal(t, "2", string(k))
 	assert.True(t, ok)
 
-	k, ok = Req("BITOP", "AND", 1, 2).Key()
-	assert.Equal(t, "1", k)
+	r = Req("BITOP", "AND", 1, 2)
+	k, ok = r.KeyByte()
+	assert.Equal(t, "1", string(k))
 	assert.True(t, ok)
 }
 

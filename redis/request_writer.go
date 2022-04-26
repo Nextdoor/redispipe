@@ -21,13 +21,19 @@ func AppendRequest(buf []byte, req Request) ([]byte, error) {
 			break
 		}
 	}
+
+	argCount := req.RawAppends
+	if argCount == 0 {
+		argCount = len(req.Args)
+	}
+
 	if space == -1 {
-		buf = appendHead(buf, '*', len(req.Args)+1)
+		buf = appendHead(buf, '*', argCount+1)
 		buf = appendHead(buf, '$', len(req.Cmd))
 		buf = append(buf, req.Cmd...)
 		buf = append(buf, '\r', '\n')
 	} else {
-		buf = appendHead(buf, '*', len(req.Args)+2)
+		buf = appendHead(buf, '*', argCount+2)
 		buf = appendHead(buf, '$', space)
 		buf = append(buf, req.Cmd[:space]...)
 		buf = append(buf, '\r', '\n')
@@ -35,6 +41,12 @@ func AppendRequest(buf []byte, req Request) ([]byte, error) {
 		buf = append(buf, req.Cmd[space+1:]...)
 		buf = append(buf, '\r', '\n')
 	}
+
+	if req.RawAppends != 0 {
+		buf = append(buf, req.Raw...)
+		return buf, nil
+	}
+
 	for i, val := range req.Args {
 		switch v := val.(type) {
 		case string:
@@ -172,13 +184,27 @@ func appendBulkUint(b []byte, i uint64) []byte {
 // Used in cluster to determine cluster slot.
 // Have to be in sync with AppendRequest
 func ArgToString(arg interface{}) (string, bool) {
-	var bufarr [20]byte
-	var buf []byte
 	switch v := arg.(type) {
 	case string:
 		return v, true
 	case []byte:
 		return string(v), true
+	case nil:
+		return "", true
+	case bool:
+		if v {
+			return "1", true
+		}
+		return "0", true
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 32), true
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64), true
+	}
+
+	var bufarr [20]byte
+	var buf []byte
+	switch v := arg.(type) {
 	case int:
 		buf = appendInt(bufarr[:0], int64(v))
 	case uint:
@@ -199,17 +225,6 @@ func ArgToString(arg interface{}) (string, bool) {
 		buf = appendInt(bufarr[:0], int64(v))
 	case uint16:
 		buf = appendUint(bufarr[:0], uint64(v))
-	case bool:
-		if v {
-			return "1", true
-		}
-		return "0", true
-	case float32:
-		return strconv.FormatFloat(float64(v), 'f', -1, 32), true
-	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64), true
-	case nil:
-		return "", true
 	default:
 		return "", false
 	}

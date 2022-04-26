@@ -2,17 +2,49 @@ package redis
 
 import "fmt"
 
+var (
+	rKey = []byte("RANDOMKEY")
+	eKey = []byte("")
+)
+
 // Req - convenient wrapper to create Request.
 func Req(cmd string, args ...interface{}) Request {
-	return Request{cmd, args}
+	return Request{Cmd: cmd, Raw: nil, RawAppends: 0, Args: args}
 }
 
 // Request represents request to be passed to redis.
 type Request struct {
 	// Cmd is a redis command to be sent.
 	// It could contain single space, then it will be split, and last part will be serialized as an argument.
-	Cmd  string
-	Args []interface{}
+	Cmd        string
+	Args       []interface{}
+	Raw        []byte
+	RawAppends int
+	Key        []byte
+}
+
+func (r *Request) SetKey(key []byte) {
+	r.Key = key
+	r.AppendBytes(key)
+}
+
+func (r *Request) AppendBytes(arg []byte) {
+	r.RawAppends++
+	r.Raw = appendHead(r.Raw, '$', len(arg))
+	r.Raw = append(r.Raw, arg...)
+	r.Raw = append(r.Raw, '\r', '\n')
+}
+
+func (r *Request) AppendInt(arg int) {
+	r.RawAppends++
+	r.Raw = appendBulkInt(r.Raw, int64(arg))
+	r.Raw = append(r.Raw, '\r', '\n')
+}
+
+func (r *Request) AppendInt64(arg int64) {
+	r.RawAppends++
+	r.Raw = appendBulkInt(r.Raw, arg)
+	r.Raw = append(r.Raw, '\r', '\n')
 }
 
 func (r Request) String() string {
@@ -34,10 +66,13 @@ func (r Request) String() string {
 	return fmt.Sprintf("Req(%q, %q)", r.Cmd, argss)
 }
 
-// Key returns first field of request that should be used as a key for redis cluster.
-func (r Request) Key() (string, bool) {
+func (r *Request) KeyByte() ([]byte, bool) {
+	if r.Key != nil {
+		return r.Key, true
+	}
+
 	if r.Cmd == "RANDOMKEY" {
-		return "RANDOMKEY", false
+		return rKey, false
 	}
 	var n int
 	switch r.Cmd {
@@ -48,10 +83,13 @@ func (r Request) Key() (string, bool) {
 	default:
 		n = 0
 	}
+
 	if len(r.Args) <= n {
-		return "", false
+		return eKey, false
 	}
-	return ArgToString(r.Args[n])
+
+	ks, ok := ArgToString(r.Args[n])
+	return []byte(ks), ok
 }
 
 // Future is interface accepted by Sender to signal request completion.
