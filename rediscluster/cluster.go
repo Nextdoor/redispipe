@@ -3,6 +3,7 @@ package rediscluster
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -51,7 +52,7 @@ const (
 	defaultCheckInterval = 5 * time.Second
 	defaultWaitToMigrate = 20 * time.Millisecond
 
-	forceInterval = 100 * time.Millisecond
+	defaultForceInterval = 100 * time.Millisecond
 
 	needConnected = iota
 	mayBeConnected
@@ -94,6 +95,10 @@ type Opts struct {
 	RoundRobinSeed RoundRobinSeed
 	// LatencyOrientedRR - when MasterAndSlaves is used, prefer hosts with lower latency
 	LatencyOrientedRR bool
+
+	// ForceReloadInterval - maximum frequency of forced cluster topology reload.
+	// default: 100 millisecond, min 100 millisecond, max: 2 minute, -1 to disable force reloading
+	ForceReloadInterval time.Duration
 }
 
 // Cluster is implementation of redis.Sender which represents connection to redis-cluster.
@@ -223,6 +228,12 @@ func NewCluster(ctx context.Context, initAddrs []string, opts Opts) (*Cluster, e
 		cluster.latencyAwareness = 1
 	}
 
+	if cluster.opts.ForceReloadInterval >= 0 && cluster.opts.ForceReloadInterval < 100*time.Millisecond {
+		cluster.opts.ForceReloadInterval = defaultForceInterval
+	} else if cluster.opts.ForceReloadInterval > 2*time.Minute {
+		cluster.opts.ForceReloadInterval = 2 * time.Minute
+	}
+
 	config := &clusterConfig{
 		nodes:   make(nodeMap),
 		shards:  make(shardMap),
@@ -303,6 +314,12 @@ func (c *Cluster) control() {
 	ft := time.NewTimer(time.Hour)
 	ft.Stop()
 
+	// Disable forced reload
+	reloadInterval := c.opts.ForceReloadInterval
+	if reloadInterval < 0 {
+		forceReload = nil
+	}
+
 	// main control loop
 	for {
 		select {
@@ -317,7 +334,7 @@ func (c *Cluster) control() {
 		case <-forceReload:
 			// forced mapping reload
 			forceReload = nil
-			ft.Reset(forceInterval)
+			ft.Reset(reloadInterval)
 			c.reloadMapping()
 		case <-ft.C:
 			// allow force reloading again
@@ -333,6 +350,14 @@ func (c *Cluster) control() {
 func (c *Cluster) reloadMapping() error {
 	nodes, err := c.slotRangesAndInternalMasterOnly()
 	if err == nil {
+		for _, node := range nodes {
+			for j, addr := range node.Addrs {
+				if strings.HasPrefix(addr, ":") {
+					node.Addrs[j] = "127.0.0.1" + addr
+				}
+			}
+		}
+
 		c.updateMappings(nodes)
 	}
 	return err
@@ -475,6 +500,11 @@ func (c *Cluster) SendWithPolicy(policy ReplicaPolicyEnum, req Request, cb Futur
 		return
 	}
 
+	if !conn.Ready() {
+		cb.Resolve(c.err(redis.ErrRequestCircuitBroken), off)
+		return
+	}
+
 	r := requestPool.Get().(*request)
 	*r = request{
 		c:      c,
@@ -525,11 +555,21 @@ var requestPool = sync.Pool{New: func() interface{} { return &request{} }}
 
 func (r *request) resolve(res interface{}) {
 	if r.cb != &dumb {
+		if err := r.cb.Cancelled(); err != nil {
+			r.lastconn.Report(false)
+			r.cb.Resolve(r.c.errWrap(redis.ErrRequestCircuitBroken, err), r.off)
+			return
+		}
+
 		if err := redis.AsErrorx(res); err != nil {
 			err = withNewProperty(err, redis.EKRequest, r.req)
 			err = r.c.addProps(err)
 			res = err
+			r.lastconn.Report(false)
+		} else {
+			r.lastconn.Report(true)
 		}
+
 		r.cb.Resolve(res, r.off)
 	}
 	*r = request{}
