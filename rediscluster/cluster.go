@@ -187,8 +187,8 @@ func NewCluster(ctx context.Context, initAddrs []string, opts Opts) (*Cluster, e
 	}
 	cluster.ctx, cluster.cancel = context.WithCancel(ctx)
 
-	if cluster.opts.HostOpts.Logger == nil {
-		cluster.opts.HostOpts.Logger = defaultConnLogger{cluster}
+	if cluster.opts.HostOpts.LoggerFactory == nil {
+		cluster.opts.HostOpts.LoggerFactory = &DefaultLoggerFactory{cluster}
 	}
 	if cluster.opts.Logger == nil {
 		cluster.opts.Logger = DefaultLogger{}
