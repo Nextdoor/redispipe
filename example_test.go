@@ -23,8 +23,7 @@ func Example_usage() {
 		opts := redisconn.Opts{
 			DB:       databaseno,
 			Password: password,
-			Logger:   redisconn.NoopLogger{}, // shut up logging. Could be your custom implementation.
-			Handle:   myhandle,               // custom data, useful for custom logging
+			Handle:   myhandle, // custom data, useful for custom logging
 			// Other parameters (usually, no need to change)
 			// IOTimeout, DialTimeout, ReconnectTimeout, TCPKeepAlive, Concurrency, WritePause, AsyncDial
 		}
