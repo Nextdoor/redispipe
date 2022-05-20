@@ -36,7 +36,6 @@ func Example_usage() {
 			HostOpts: redisconn.Opts{
 				// No DB
 				Password: password,
-				// Usually, no need for special logger
 			},
 			Name:   "mycluster",               // name of a cluster
 			Logger: rediscluster.NoopLogger{}, // shut up logging. Could be your custom implementation.

@@ -53,9 +53,7 @@ func ExampleAsError() {
 func ExampleScanner() {
 	defer runServer(46231)()
 	ctx := context.Background()
-	conn, _ := redisconn.Connect(ctx, "127.0.0.1:46231", redisconn.Opts{
-		Logger: redisconn.NoopLogger{},
-	})
+	conn, _ := redisconn.Connect(ctx, "127.0.0.1:46231", redisconn.Opts{})
 	sync := redis.Sync{conn}
 	sync.Do("SET", "key1", "val1")
 	sync.Do("SET", "key2", "val2")
@@ -81,9 +79,7 @@ func ExampleScanner() {
 func ExampleSync() {
 	defer runServer(46231)()
 	ctx := context.Background()
-	conn, _ := redisconn.Connect(ctx, "127.0.0.1:46231", redisconn.Opts{
-		Logger: redisconn.NoopLogger{},
-	})
+	conn, _ := redisconn.Connect(ctx, "127.0.0.1:46231", redisconn.Opts{})
 	sync := redis.Sync{conn}
 
 	res := sync.Do("SET", "key1", "1")
