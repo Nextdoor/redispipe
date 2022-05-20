@@ -39,7 +39,7 @@ type CircuitBreakerFactoryI interface {
 }
 
 type LoggerFactoryI interface {
-	NewLogger() Logger
+	NewLogger(conn *Connection) Logger
 }
 
 // Opts - options for Connection
@@ -175,7 +175,7 @@ func Connect(ctx context.Context, addr string, opts Opts) (conn *Connection, err
 	if conn.opts.LoggerFactory == nil {
 		conn.logger = DefaultLogger{}
 	} else {
-		conn.logger = conn.opts.LoggerFactory.NewLogger()
+		conn.logger = conn.opts.LoggerFactory.NewLogger(conn)
 	}
 
 	conn.storePingLatency(0)
