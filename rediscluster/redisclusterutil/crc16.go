@@ -3,7 +3,7 @@ package redisclusterutil
 // copied from github.com/mediocregopher/radix.v2/cluster/crc16.go
 
 import (
-	"strings"
+	"bytes"
 )
 
 var tab = [256]uint16{
@@ -55,13 +55,13 @@ func CRC16(buf []byte) uint16 {
 	return crc
 }
 
-// Slot returns the cluster slot the given key will fall into, taking into
+// ByteSlot returns the cluster slot the given key will fall into, taking into
 // account curly braces within the key as per the spec.
-func Slot(key string) uint16 {
-	if start := strings.Index(key, "{"); start >= 0 {
-		if end := strings.Index(key[start+1:], "}"); end > 0 {
+func ByteSlot(key []byte) uint16 {
+	if start := bytes.IndexByte(key, '{'); start >= 0 {
+		if end := bytes.IndexByte(key[start+1:], '}'); end > 0 {
 			key = key[start+1 : start+1+end]
 		}
 	}
-	return CRC16([]byte(key)) % NumSlots
+	return CRC16(key) % NumSlots
 }

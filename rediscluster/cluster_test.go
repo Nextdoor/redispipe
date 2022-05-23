@@ -42,7 +42,7 @@ func (s *Suite) SetupSuite() {
 	cnt := 0
 	for i := 0; cnt < NumSlots; i++ {
 		key := "x" + strconv.Itoa(i)
-		slot := redisclusterutil.Slot(key)
+		slot := redisclusterutil.ByteSlot([]byte(key))
 		if s.keys[slot] == "" {
 			s.keys[slot] = key
 			cnt++
