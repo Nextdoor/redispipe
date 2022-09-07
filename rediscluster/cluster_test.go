@@ -916,3 +916,200 @@ Loop:
 	}
 	s.Equal(N, cnt, "Not all goroutines finished")
 }
+
+func (s *Suite) TestFallbackTimeoutLatency() {
+	opts := longcheckopts
+	opts.RoundRobinSeed = alwaysZero{}
+	opts.LatencyOrientedRR = true
+	opts.ForceLowestLatency = true
+
+	cl, err := NewCluster(s.ctx, []string{"127.0.0.1:43210"}, opts)
+	s.r().Nil(err)
+	defer cl.Close()
+
+	sconn := redis.SyncCtx{cl.WithPolicy(PreferSlaves)}
+
+	key := slotkey("toslave", s.keys[1], "timeout")
+	sconn.Do(s.ctx, "SET", key, "1")
+
+	s.cl.Node[0].Pause()
+	// test read from replica
+	s.Equal([]byte("1"), sconn.Do(s.ctx, "GET", key))
+	s.Contains(DebugEvents(), "retry")
+
+	// wait replica becomes master
+	s.cl.WaitClusterOk()
+	time.Sleep(longcheckopts.CheckInterval)
+
+	s.Equal("OK", sconn.Do(s.ctx, "SET", key, "1"))
+
+	// return master
+	s.cl.Node[0].Resume()
+	s.cl.WaitClusterOk()
+	s.cl.Node[3].Stop()
+	s.cl.WaitClusterOk()
+	s.cl.Node[3].Start()
+}
+
+func (s *Suite) TestAllReturns_Bad_Latency() {
+	s.ctxcancel()
+	s.ctx, s.ctxcancel = context.WithTimeout(context.Background(), 10*time.Minute)
+	DebugDisable = true
+
+	opts := clustopts
+	opts.LatencyOrientedRR = true
+	opts.ForceLowestLatency = true
+
+	cl, err := NewCluster(s.ctx, []string{"127.0.0.1:43210"}, opts)
+	s.r().Nil(err)
+	defer cl.Close()
+
+	sconn := redis.SyncCtx{cl.WithPolicy(MasterAndSlaves)}
+
+	s.fillMany(sconn, "allbad")
+
+	const N = 200
+	fin := make(chan struct{})
+	goods := make([]chan bool, N)
+	checks := make(chan bool, N)
+	finch := make(chan struct{}, N)
+
+	for i := 0; i < N; i++ {
+		goods[i] = make(chan bool, 1)
+		go func(i int) {
+			check := true
+		Loop:
+			for j := 0; ; j++ {
+				select {
+				case <-goods[i]:
+					check = true
+				case <-fin:
+					break Loop
+				case <-s.ctx.Done():
+					break Loop
+				default:
+				}
+
+				skey := s.keys[(i*N+j)*127%NumSlots]
+				key := slotkey("allbad", skey)
+				res := sconn.Do(s.ctx, "GET", key)
+
+				keya := slotkey("allbad", skey, "a")
+				keyb := slotkey("allbad", skey, "b")
+				z := i*53 + j*51
+				z ^= z >> 8
+				reverse := z&1 == 0
+				transact := z&2 == 0
+				if reverse {
+					keya, keyb = keyb, keya
+				}
+				reqs := []redis.Request{
+					redis.Req("SET", keya, keyb),
+					redis.Req("GET", keyb),
+				}
+				var ress []interface{}
+				var err error
+				if !transact {
+					ress = sconn.SendMany(s.ctx, reqs)
+				} else {
+					ress, err = sconn.SendTransaction(s.ctx, reqs)
+				}
+				if check {
+					ok := s.Equal([]byte(skey), res)
+					ok = ok && err == nil
+					ok = ok && s.Equal("OK", ress[0])
+					if ress[1] != nil {
+						ok = ok && s.Equal([]byte(keya), ress[1])
+					}
+					checks <- ok
+				}
+				check = false
+				runtime.Gosched()
+			}
+			finch <- struct{}{}
+		}(i)
+	}
+
+	isAllGood := true
+	sendgoods := func() bool {
+		for i := 0; i < N; i++ {
+			select {
+			case <-s.ctx.Done():
+				isAllGood = false
+				return false
+			case goods[i] <- true:
+			}
+		}
+		return true
+	}
+	allgood := func() bool {
+		ok := true
+		for i := 0; i < N; i++ {
+			select {
+			case <-s.ctx.Done():
+				isAllGood = false
+				return false
+			case cur := <-checks:
+				ok = ok && cur
+			}
+		}
+		isAllGood = ok
+		return ok
+	}
+
+	time.Sleep(defopts.IOTimeout * 2)
+	for k := 0; k < 3*len(s.cl.Node); k++ {
+		n := k % len(s.cl.Node)
+		node := &s.cl.Node[n]
+
+		if !allgood() {
+			break
+		}
+
+		node.Stop()
+		s.cl.WaitClusterOk()
+		time.Sleep(clustopts.CheckInterval * 2)
+		if !sendgoods() || !allgood() {
+			break
+		}
+
+		node.Start()
+		s.cl.WaitClusterOk()
+		time.Sleep(clustopts.CheckInterval * 2)
+		if !sendgoods() || !allgood() {
+			break
+		}
+
+		node.Pause()
+		s.cl.WaitClusterOk()
+		time.Sleep(clustopts.CheckInterval * 2)
+		if !sendgoods() || !allgood() {
+			break
+		}
+
+		node.Resume()
+		s.cl.WaitClusterOk()
+		time.Sleep(clustopts.CheckInterval * 2)
+		if !sendgoods() {
+			break
+		}
+	}
+
+	if isAllGood {
+		s.True(allgood())
+	}
+
+	close(fin)
+
+	cnt := 0
+Loop:
+	for cnt < N {
+		select {
+		case <-s.ctx.Done():
+			break Loop
+		case <-finch:
+			cnt++
+		}
+	}
+	s.Equal(N, cnt, "Not all goroutines finished")
+}
