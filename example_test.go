@@ -23,8 +23,7 @@ func Example_usage() {
 		opts := redisconn.Opts{
 			DB:       databaseno,
 			Password: password,
-			Logger:   redisconn.NoopLogger{}, // shut up logging. Could be your custom implementation.
-			Handle:   myhandle,               // custom data, useful for custom logging
+			Handle:   myhandle, // custom data, useful for custom logging
 			// Other parameters (usually, no need to change)
 			// IOTimeout, DialTimeout, ReconnectTimeout, TCPKeepAlive, Concurrency, WritePause, AsyncDial
 		}
@@ -37,7 +36,6 @@ func Example_usage() {
 			HostOpts: redisconn.Opts{
 				// No DB
 				Password: password,
-				// Usually, no need for special logger
 			},
 			Name:   "mycluster",               // name of a cluster
 			Logger: rediscluster.NoopLogger{}, // shut up logging. Could be your custom implementation.

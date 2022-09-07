@@ -115,3 +115,11 @@ func (d NoopLogger) Report(conn *Cluster, event LogEvent) {}
 // ReqStat implements Logger.ReqStat
 func (d NoopLogger) ReqStat(c *Cluster, conn *redisconn.Connection, req Request, res interface{}, nanos int64) {
 }
+
+type DefaultLoggerFactory struct {
+	c *Cluster
+}
+
+func (lf *DefaultLoggerFactory) NewLogger() redisconn.Logger {
+	return defaultConnLogger{lf.c}
+}

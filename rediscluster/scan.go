@@ -33,7 +33,7 @@ func (c *Cluster) Scanner(opts redis.ScanOpts) redis.Scanner {
 	} else {
 		// other commands operates on single key
 		key := opts.Key
-		slot := redisclusterutil.Slot(key)
+		slot := redisclusterutil.ByteSlot([]byte(key))
 		shard := c.getConfig().slot2shard(slot)
 		addrs = shard.addr[:1]
 	}

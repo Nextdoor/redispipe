@@ -54,6 +54,35 @@ func (r Request) Key() (string, bool) {
 	return ArgToString(r.Args[n])
 }
 
+var rKey = []byte("RANDOMKEY")
+var eKey = []byte("")
+
+func (r Request) KeyByte() ([]byte, bool) {
+	if r.Cmd == "RANDOMKEY" {
+		return rKey, false
+	}
+	var n int
+	switch r.Cmd {
+	case "EVAL", "EVALSHA":
+		n = 2
+	case "BITOP":
+		n = 1
+	default:
+		n = 0
+	}
+	if len(r.Args) <= n {
+		return eKey, false
+	}
+
+	key := r.Args[n]
+	if k, ok := key.([]byte); ok {
+		return k, true
+	}
+
+	ks, ok := ArgToString(key)
+	return []byte(ks), ok
+}
+
 // Future is interface accepted by Sender to signal request completion.
 type Future interface {
 	// Resolve is called by sender to pass result (or error) for particular request.

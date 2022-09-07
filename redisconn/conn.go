@@ -38,6 +38,10 @@ type CircuitBreakerFactoryI interface {
 	NewBreaker(conn *Connection) *circuit.Breaker
 }
 
+type LoggerFactoryI interface {
+	NewLogger(conn *Connection) Logger
+}
+
 // Opts - options for Connection
 type Opts struct {
 	// DB - database number
@@ -66,8 +70,8 @@ type Opts struct {
 	// Default is 50 microseconds. Recommended value is 150 microseconds.
 	// Set < 0 to disable for single threaded use case.
 	WritePause time.Duration
-	// Logger
-	Logger Logger
+	// LoggerFactory
+	LoggerFactory LoggerFactoryI
 	// AsyncDial - do not establish connection immediately
 	AsyncDial bool
 	// ScriptMode - enables blocking commands and turns default WritePause to -1.
@@ -101,7 +105,8 @@ type Connection struct {
 	firstConn chan struct{}
 	opts      Opts
 
-	cb *circuit.Breaker
+	cb     *circuit.Breaker
+	logger Logger
 }
 
 type oneconn struct {
@@ -167,8 +172,10 @@ func Connect(ctx context.Context, addr string, opts Opts) (conn *Connection, err
 		}
 	}
 
-	if conn.opts.Logger == nil {
-		conn.opts.Logger = DefaultLogger{}
+	if conn.opts.LoggerFactory == nil {
+		conn.logger = DefaultLogger{}
+	} else {
+		conn.logger = conn.opts.LoggerFactory.NewLogger(conn)
 	}
 
 	conn.storePingLatency(0)

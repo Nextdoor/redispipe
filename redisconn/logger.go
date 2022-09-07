@@ -52,7 +52,7 @@ func (LogDisconnected) logEvent()  {}
 func (LogContextClosed) logEvent() {}
 
 func (conn *Connection) report(event LogEvent) {
-	conn.opts.Logger.Report(conn, event)
+	conn.logger.Report(conn, event)
 }
 
 // DefaultLogger is default implementation of Logger
