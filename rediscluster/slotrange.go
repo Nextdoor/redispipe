@@ -179,7 +179,7 @@ func (c *Cluster) updateMappings(slotRanges []redisclusterutil.SlotsRange) {
 			}
 			for i, addr := range shard.addr {
 				node := newConfig.nodes[addr]
-				weight := sumLatency / atomic.LoadUint32(&node.ping)
+				weight := uint32(100 * float32(sumLatency) / float32(atomic.LoadUint32(&node.ping)))
 				atomic.StoreUint32(&shard.weights[i], weight)
 			}
 		}
