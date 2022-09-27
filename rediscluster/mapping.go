@@ -2,7 +2,6 @@ package rediscluster
 
 import (
 	"fmt"
-	"sort"
 	"sync/atomic"
 	"unsafe"
 
@@ -235,38 +234,36 @@ func (c *Cluster) connForSlot(slot uint16, policy ReplicaPolicyEnum, seen []*red
 
 		latencyAware := atomic.LoadUint32(&c.latencyAwareness)
 
+		w := shard.weights.Load()
+		if w == nil {
+			break /*switch*/
+		}
+
+		weights := *w
+
 		if latencyAware != 0 && c.opts.ForceLowestLatency {
-			var ntw [32]nodeToWeight
+			// Find highest weight healthy node
 
-			fntw := ntw[:len(shard.weights)]
-			for i := range shard.weights {
-				if health&(1<<uint(i)) == 0 {
-					continue
-				}
-				fntw[i] = nodeToWeight{i: i, weight: atomic.LoadUint32(&shard.weights[i])}
-			}
-
-			sort.Slice(fntw, func(i, j int) bool {
-				return fntw[i].weight > fntw[j].weight
-			})
-
-			mask := health
 			for _, needState := range []int{needConnected, mayBeConnected} {
-				for _, nt := range fntw {
-					if conn != nil || mask == 0 {
-						break
+				for _, weight := range weights {
+					// Check if node is unhealthy
+					if health&(1<<uint(weight.index)) == 0 {
+						continue
 					}
 
-					mask &^= 1 << nt.i
-
-					addr = shard.addr[nt.i]
+					addr = shard.addr[weight.index]
 					node := nodes[addr]
 					if node == nil {
 						// it is strange a bit, but lets ignore
 						continue
 					}
 
+					// Get conn for state
 					conn = node.getConn(c.opts.ConnHostPolicy, needState, seen)
+
+					if conn != nil {
+						break
+					}
 				}
 				if conn != nil {
 					break
@@ -280,11 +277,12 @@ func (c *Cluster) connForSlot(slot uint16, policy ReplicaPolicyEnum, seen []*red
 					ws = rs
 				}
 			} else {
-				for i := range shard.weights {
-					ws[i] = atomic.LoadUint32(&shard.weights[i])
+				// Populate weights
+				for _, weight := range weights {
+					ws[weight.index] = weight.weight
 				}
 			}
-			weights := ws[:len(shard.weights)]
+			weights := ws[:len(weights)]
 
 			health := atomic.LoadUint32(&shard.good) // load health information
 			healthWeight := uint32(0)

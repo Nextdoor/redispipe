@@ -151,7 +151,7 @@ type shard struct {
 	rr      uint32
 	good    uint32
 	addr    []string
-	weights []uint32
+	weights atomic.Pointer[[]shardWeight]
 }
 type shardMap map[uint16]*shard
 type masterMap map[string]uint16
