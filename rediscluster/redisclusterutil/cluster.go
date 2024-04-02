@@ -77,7 +77,7 @@ func ParseSlotsInfo(res interface{}) ([]SlotsRange, error) {
 			}
 			host, ok := rawaddr[0].([]byte)
 			port, ok2 := rawaddr[1].(int64)
-			if !ok || !ok2 || port <= 0 || port+10000 > 65535 {
+			if !ok || !ok2 || port <= 0 || port > 65535 {
 				return errf("address format mismatch: res[%d][%d] = %+v",
 					i, j, rawaddr)
 			}
