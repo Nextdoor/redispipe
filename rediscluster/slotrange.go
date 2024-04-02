@@ -2,6 +2,7 @@ package rediscluster
 
 import (
 	"bytes"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -112,15 +113,20 @@ func (c *Cluster) updateMappings(slotRanges []redisclusterutil.SlotsRange) {
 		if oldshard != nil {
 			newConfig.shards[shardno] = oldshard
 		} else {
+			w := make([]shardWeight, len(addrs))
+
 			shard := &shard{
 				addr:    addrs,
 				good:    (uint32(1) << uint(len(addrs))) - 1,
-				weights: make([]uint32, len(addrs)),
+				weights: atomic.Pointer[[]shardWeight]{},
 			}
 			newConfig.shards[shardno] = shard
-			for i := range shard.weights {
-				shard.weights[i] = 1
+
+			for i, ww := range w {
+				ww.index = uint32(i)
+				ww.weight = 1
 			}
+			shard.weights.Store(&w)
 		}
 		newConfig.masters[addrs[0]] = shardno
 		random = shardno
@@ -177,13 +183,29 @@ func (c *Cluster) updateMappings(slotRanges []redisclusterutil.SlotsRange) {
 				node := newConfig.nodes[addr]
 				sumLatency += atomic.LoadUint32(&node.ping)
 			}
+
+			// update weights
+			weights := make([]shardWeight, len(shard.addr))
 			for i, addr := range shard.addr {
 				node := newConfig.nodes[addr]
-				weight := sumLatency / atomic.LoadUint32(&node.ping)
-				atomic.StoreUint32(&shard.weights[i], weight)
+				weights[i].index = uint32(i)
+				weights[i].weight = uint32(100 * float32(sumLatency) / float32(atomic.LoadUint32(&node.ping)))
 			}
+
+			// sort the weights
+			sort.Slice(weights, func(i, j int) bool {
+				return weights[i].weight > weights[j].weight
+			})
+
+			// store new weights
+			shard.weights.Store(&weights)
 		}
 	})
+}
+
+type shardWeight struct {
+	index  uint32
+	weight uint32
 }
 
 func (s *shard) setReplicaInfo(res interface{}, n uint64) {

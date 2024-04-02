@@ -99,6 +99,10 @@ type Opts struct {
 	// ForceReloadInterval - maximum frequency of forced cluster topology reload.
 	// default: 100 millisecond, min 100 millisecond, max: 2 minute, -1 to disable force reloading
 	ForceReloadInterval time.Duration
+
+	// ForceLowestLatency - When LatencyOrientedRR is used, force using the lowest latency instead
+	// node instead of preference.
+	ForceLowestLatency bool
 }
 
 // Cluster is implementation of redis.Sender which represents connection to redis-cluster.
@@ -147,7 +151,7 @@ type shard struct {
 	rr      uint32
 	good    uint32
 	addr    []string
-	weights []uint32
+	weights atomic.Pointer[[]shardWeight]
 }
 type shardMap map[uint16]*shard
 type masterMap map[string]uint16
