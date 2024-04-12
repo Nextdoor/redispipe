@@ -34,8 +34,56 @@ func TestRequestKey(t *testing.T) {
 	assert.Equal(t, "2", k)
 	assert.True(t, ok)
 
+	k, ok = Req("FCALL", "foo", 1, 2, 3).Key()
+	assert.Equal(t, "2", k)
+	assert.True(t, ok)
+
+	k, ok = Req("FCALL_RO", "foo", 1, 2, 3).Key()
+	assert.Equal(t, "2", k)
+	assert.True(t, ok)
+
 	k, ok = Req("BITOP", "AND", 1, 2).Key()
 	assert.Equal(t, "1", k)
+	assert.True(t, ok)
+}
+
+func TestRequestKeyByte(t *testing.T) {
+	var k []byte
+	var ok bool
+
+	k, ok = Req("GET", 1).KeyByte()
+	assert.Equal(t, []byte("1"), k)
+	assert.True(t, ok)
+
+	_, ok = Req("GET").Key()
+	assert.False(t, ok)
+
+	k, ok = Req("SET", 1, 2).KeyByte()
+	assert.Equal(t, []byte("1"), k)
+	assert.True(t, ok)
+
+	k, ok = Req("RANDOMKEY").KeyByte()
+	assert.Equal(t, []byte("RANDOMKEY"), k)
+	assert.False(t, ok)
+
+	k, ok = Req("EVAL", "return KEY[1]", 1, 2, 3).KeyByte()
+	assert.Equal(t, []byte("2"), k)
+	assert.True(t, ok)
+
+	k, ok = Req("EVALSHA", "1234abcdef", 1, 2, 3).KeyByte()
+	assert.Equal(t, []byte("2"), k)
+	assert.True(t, ok)
+
+	k, ok = Req("FCALL", "foo", 1, 2, 3).KeyByte()
+	assert.Equal(t, []byte("2"), k)
+	assert.True(t, ok)
+
+	k, ok = Req("FCALL_RO", "foo", 1, 2, 3).KeyByte()
+	assert.Equal(t, []byte("2"), k)
+	assert.True(t, ok)
+
+	k, ok = Req("BITOP", "AND", 1, 2).KeyByte()
+	assert.Equal(t, []byte("1"), k)
 	assert.True(t, ok)
 }
 

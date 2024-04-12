@@ -41,6 +41,8 @@ func (r Request) Key() (string, bool) {
 	}
 	var n int
 	switch r.Cmd {
+	case "FCALL", "FCALL_RO":
+		n = 2
 	case "EVAL", "EVALSHA":
 		n = 2
 	case "BITOP":
@@ -63,6 +65,8 @@ func (r Request) KeyByte() ([]byte, bool) {
 	}
 	var n int
 	switch r.Cmd {
+	case "FCALL", "FCALL_RO":
+		n = 2
 	case "EVAL", "EVALSHA":
 		n = 2
 	case "BITOP":

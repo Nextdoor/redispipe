@@ -53,7 +53,7 @@ var replicaSafe = makeSet(strings.Split(
 		"SCARD SDIFF SINTER SISMEMBER SMEMBERS SRANDMEMBER STRLEN SUNION "+
 		"ZCARD ZCOUNT ZLEXCOUNT ZRANGE ZRANGEBYLEX ZREVRANGEBYLEX "+
 		"ZRANGEBYSCORE ZRANK ZREVRANGE ZREVRANGEBYSCORE ZREVRANK ZSCORE "+
-		"XPENDING XREVRANGE XREAD XLEN ", " "))
+		"XPENDING XREVRANGE XREAD XLEN FCALL_RO", " "))
 
 // ReplicaSafe returns true if command is readonly and "safe to run on replica".
 // Some commands like "scan" are not included, because their result could differ between
