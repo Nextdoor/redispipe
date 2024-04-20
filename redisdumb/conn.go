@@ -59,7 +59,7 @@ func (c *Conn) Do(cmd string, args ...interface{}) interface{} {
 			c.Do("ASKING")
 		}
 		c.C.SetDeadline(time.Now().Add(timeout))
-		req, err = redis.AppendRequest(nil, redis.Request{cmd, args})
+		req, err = redis.AppendRequest(nil, redis.Request{cmd, nil, args, nil})
 		if err == nil {
 			if _, err = c.C.Write(req); err == nil {
 				res := redis.ReadResponse(c.R)
@@ -194,7 +194,7 @@ func Do(addr string, cmd string, args ...interface{}) interface{} {
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(DefaultTimeout))
-	req, rerr := redis.AppendRequest(nil, redis.Request{cmd, args})
+	req, rerr := redis.AppendRequest(nil, redis.Request{cmd, nil, args, nil})
 	if rerr != nil {
 		return rerr
 	}
