@@ -13,6 +13,10 @@ import (
 //
 // Note: command could contain single space. In that case, it will be split and last part will be prepended to arguments.
 func AppendRequest(buf []byte, req Request) ([]byte, error) {
+	if len(req.EncodedBytes) != 0 {
+		return append(buf, req.EncodedBytes...), nil
+	}
+
 	oldSize := len(buf)
 	space := -1
 	for i, c := range []byte(req.Cmd) {

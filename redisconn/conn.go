@@ -380,7 +380,7 @@ func (conn *Connection) doSend(req Request, cb Future, n uint64, asking bool) *e
 	futures := conn.futures
 	if asking {
 		// send ASKING request before actual
-		futures = append(futures, future{&dumb, 0, 0, Request{"ASKING", nil}})
+		futures = append(futures, future{&dumb, 0, 0, Request{"ASKING", nil, nil, nil}})
 	}
 	futures = append(futures, future{cb, n, nownano(), req})
 
@@ -492,11 +492,11 @@ func (conn *Connection) doSendBatch(requests []Request, cb Future, start uint64,
 	futures := conn.futures
 	if flags&DoAsking != 0 {
 		// send ASKING request before actual
-		futures = append(futures, future{&dumb, 0, 0, Request{"ASKING", nil}})
+		futures = append(futures, future{&dumb, 0, 0, Request{"ASKING", nil, nil, nil}})
 	}
 	if flags&DoTransaction != 0 {
 		// send MULTI request for transaction start
-		futures = append(futures, future{&dumb, 0, 0, Request{"MULTI", nil}})
+		futures = append(futures, future{&dumb, 0, 0, Request{"MULTI", nil, nil, nil}})
 	}
 
 	now := nownano()
@@ -507,7 +507,7 @@ func (conn *Connection) doSendBatch(requests []Request, cb Future, start uint64,
 
 	if flags&DoTransaction != 0 {
 		// send EXEC request for transaction end
-		futures = append(futures, future{cb, start + uint64(len(requests)), now, Request{"EXEC", nil}})
+		futures = append(futures, future{cb, start + uint64(len(requests)), now, Request{"EXEC", nil, nil, nil}})
 	}
 
 	// should notify writer about this shard having queries
