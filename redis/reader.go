@@ -95,7 +95,7 @@ func ReadResponse(b *bufio.Reader) interface{} {
 			return ErrNoFinalRN.NewWithNoMessage()
 		}
 
-		return buf[:v]
+		return ByteResponse{Val: buf[:v]}
 	case '*':
 		var rerr *errorx.Error
 		if v, rerr = parseInt(line[1:]); rerr != nil {

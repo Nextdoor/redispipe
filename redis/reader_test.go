@@ -156,21 +156,17 @@ func TestReadResponse_Correct(t *testing.T) {
 	assert.Equal(t, int64(-9223372036854775808), res)
 
 	res = readLines("$0\r\n", "\r\n")
-	assert.Equal(t, []byte(""), res)
-	assert.Equal(t, 0, len(res.([]byte)))
+	assert.Equal(t, ByteResponse{Val: []byte("")}, res)
 
 	res = readLines("$1\r\n", "a\r\n")
-	assert.Equal(t, []byte("a"), res)
-	assert.Equal(t, 1, len(res.([]byte)))
+	assert.Equal(t, ByteResponse{Val: []byte("a")}, res)
 
 	res = readLines("$4\r\n", "asdf\r\n")
-	assert.Equal(t, []byte("asdf"), res)
-	assert.Equal(t, 4, len(res.([]byte)))
+	assert.Equal(t, ByteResponse{Val: []byte("asdf")}, res)
 
 	big := strings.Repeat("a", 1024*1024)
 	res = readLines(fmt.Sprintf("$%d\r\n", len(big)), big, "\r\n")
-	assert.Equal(t, []byte(big), res)
-	assert.Equal(t, 1024*1024, len(res.([]byte)))
+	assert.Equal(t, ByteResponse{Val: []byte(big)}, res)
 
 	res = readLines("*0\r\n")
 	assert.Equal(t, []interface{}{}, res)
