@@ -424,7 +424,7 @@ func (s *Suite) TestGetMoved() {
 
 	s.cl.MoveSlot(10999, 1, 2)
 
-	s.Equal([]byte(key), sconn.Do(s.ctx, "GET", key))
+	s.Equal(redis.ByteResponse{Val: []byte(key)}, sconn.Do(s.ctx, "GET", key))
 	s.Contains(DebugEvents(), "moved")
 
 	s.cl.MoveSlot(10999, 2, 1)
@@ -485,7 +485,7 @@ func (s *Suite) TestAsk() {
 
 	key := slotkey("ask", s.keys[10997])
 	s.r().Equal("OK", sconn.Do(s.ctx, "SET", key, key))
-	s.Equal([]byte(key), sconn.Do(s.ctx, "GET", key))
+	s.Equal(redis.ByteResponse{Val: []byte(key)}, sconn.Do(s.ctx, "GET", key))
 	s.Contains(DebugEvents(), "asking")
 
 	// recheck that redis responses with correct errors
@@ -531,7 +531,7 @@ func (s *Suite) TestAskTransaction() {
 	s.Equal([]interface{}{"OK", "OK"}, res)
 	s.Contains(DebugEvents(), "transaction asking")
 
-	s.Equal([]byte("1"), sconn.Do(s.ctx, "GET", key1))
+	s.Equal(redis.ByteResponse{Val: []byte("1")}, sconn.Do(s.ctx, "GET", key1))
 
 	DebugEventsReset()
 	// if some keys are absent in new shard, then redis returns TRYAGAIN error
@@ -558,8 +558,8 @@ func (s *Suite) TestAskTransaction() {
 	})
 	s.Nil(err)
 
-	s.Equal([]byte("1"), sconn.Do(s.ctx, "GET", key2))
-	s.Equal([]byte("2"), sconn.Do(s.ctx, "GET", key3))
+	s.Equal(redis.ByteResponse{Val: []byte("1")}, sconn.Do(s.ctx, "GET", key2))
+	s.Equal(redis.ByteResponse{Val: []byte("2")}, sconn.Do(s.ctx, "GET", key3))
 	s.Contains(DebugEvents(), "transaction asking")
 	s.Contains(DebugEvents(), "transaction tryagain")
 
@@ -589,8 +589,8 @@ func (s *Suite) TestMovedTransaction() {
 	s.Nil(err)
 	s.Equal([]interface{}{"OK", "OK"}, res)
 
-	s.Equal([]byte("2"), sconn.Do(s.ctx, "GET", key1))
-	s.Equal([]byte("3"), sconn.Do(s.ctx, "GET", key2))
+	s.Equal(redis.ByteResponse{Val: []byte("2")}, sconn.Do(s.ctx, "GET", key1))
+	s.Equal(redis.ByteResponse{Val: []byte("3")}, sconn.Do(s.ctx, "GET", key2))
 	s.Equal([]string{"transaction moved"}, DebugEvents())
 }
 
@@ -626,7 +626,7 @@ func (s *Suite) TestAllReturns_Good() {
 				skey := s.keys[(i*N+j)*127%NumSlots]
 				key := slotkey("allgood", skey)
 				res := sconn.Do(s.ctx, "GET", key)
-				if !s.Equal([]byte(skey), res) {
+				if !s.Equal(redis.ByteResponse{Val: []byte(skey)}, res) {
 					return
 				}
 
@@ -648,7 +648,7 @@ func (s *Suite) TestAllReturns_Good() {
 				if !s.Equal("OK", ress[0]) {
 					return
 				}
-				if ress[1] != nil && !s.Equal([]byte(keya), ress[1]) {
+				if ress[1] != nil && !s.Equal(redis.ByteResponse{Val: []byte(keya)}, ress[1]) {
 					return
 				}
 			}
@@ -699,7 +699,7 @@ func (s *Suite) TestAllReturns_GoodMoving() {
 				skey := s.keys[(i*N+j)*127%NumSlots]
 				key := slotkey("allgoodmove", skey)
 				res := sconn.Do(ctx, "GET", key)
-				if !s.Equal([]byte(skey), res) {
+				if !s.Equal(redis.ByteResponse{Val: []byte(skey)}, res) {
 					log.Println("Res ", res)
 					atomic.AddUint32(&bad, 1)
 				}
@@ -723,7 +723,7 @@ func (s *Suite) TestAllReturns_GoodMoving() {
 					log.Println("Ress[0] ", ress[0])
 					atomic.AddUint32(&bad, 1)
 				}
-				if ress[1] != nil && !s.Equal([]byte(keya), ress[1]) {
+				if ress[1] != nil && !s.Equal(redis.ByteResponse{Val: []byte(keya)}, ress[1]) {
 					log.Println("Ress[1] ", ress[1])
 					atomic.AddUint32(&bad, 1)
 				}
@@ -818,11 +818,15 @@ func (s *Suite) TestAllReturns_Bad() {
 					ress, err = sconn.SendTransaction(s.ctx, reqs)
 				}
 				if check {
-					ok := s.Equal([]byte(skey), res)
+					ok := s.Equal(redis.ByteResponse{Val: []byte(skey)}, res)
 					ok = ok && err == nil
 					ok = ok && s.Equal("OK", ress[0])
 					if ress[1] != nil {
-						ok = ok && s.Equal([]byte(keya), ress[1])
+						if !transact {
+							ok = ok && s.Equal(redis.ByteResponse{Val: []byte(keya)}, ress[1])
+						} else {
+							ok = ok && s.Equal([]byte(keya), ress[1])
+						}
 					}
 					checks <- ok
 				}
@@ -1015,11 +1019,15 @@ func (s *Suite) TestAllReturns_Bad_Latency() {
 					ress, err = sconn.SendTransaction(s.ctx, reqs)
 				}
 				if check {
-					ok := s.Equal([]byte(skey), res)
+					ok := s.Equal(redis.ByteResponse{Val: []byte(skey)}, res)
 					ok = ok && err == nil
 					ok = ok && s.Equal("OK", ress[0])
 					if ress[1] != nil {
-						ok = ok && s.Equal([]byte(keya), ress[1])
+						if !transact {
+							ok = ok && s.Equal(redis.ByteResponse{Val: []byte(keya)}, ress[1])
+						} else {
+							ok = ok && s.Equal([]byte(keya), ress[1])
+						}
 					}
 					checks <- ok
 				}
