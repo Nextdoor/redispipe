@@ -121,7 +121,7 @@ func (s *Suite) TestConnectsDb() {
 	res := sync1.Do("SET", "db", 0)
 	s.r().NoError(redis.AsError(res))
 	res = sync1.Do("GET", "db")
-	s.r().Equal(res, []byte("0"))
+	s.r().Equal(redis.ByteResponse{Val: []byte("0")}, res)
 
 	opts2 := defopts
 	opts2.DB = 1
@@ -134,10 +134,9 @@ func (s *Suite) TestConnectsDb() {
 	res = sync2.Do("SET", "db", 1)
 	s.r().NoError(redis.AsError(res))
 	res = sync2.Do("GET", "db")
-	s.r().Equal(res, []byte("1"))
-
+	s.r().Equal(redis.ByteResponse{Val: []byte("1")}, res)
 	res = sync1.Do("GET", "db")
-	s.r().Equal(res, []byte("0"))
+	s.r().Equal(redis.ByteResponse{Val: []byte("0")}, res)
 }
 
 func (s *Suite) TestFailedWithWrongDB() {
@@ -398,17 +397,17 @@ func (s *Suite) TestAllReturns_Good() {
 			for j := 0; j < K; j++ {
 				sij := strconv.Itoa(i*N + j)
 				res := sconn.Do(s.ctx, "PING", sij)
-				if !s.IsType([]byte{}, res) || !s.Equal(sij, string(res.([]byte))) {
+				if !s.IsType(redis.ByteResponse{}, res) || !s.Equal(sij, string(res.(redis.ByteResponse).Val)) {
 					return
 				}
 				ress := sconn.SendMany(s.ctx, []redis.Request{
 					redis.Req("PING", "a"+sij),
 					redis.Req("PING", "b"+sij),
 				})
-				if !s.IsType([]byte{}, ress[0]) || !s.Equal("a"+sij, string(ress[0].([]byte))) {
+				if !s.IsType(redis.ByteResponse{}, ress[0]) || !s.Equal("a"+sij, string(ress[0].(redis.ByteResponse).Val)) {
 					return
 				}
-				if !s.IsType([]byte{}, ress[1]) || !s.Equal("b"+sij, string(ress[1].([]byte))) {
+				if !s.IsType(redis.ByteResponse{}, ress[1]) || !s.Equal("b"+sij, string(ress[1].(redis.ByteResponse).Val)) {
 					return
 				}
 			}
@@ -465,9 +464,9 @@ func (s *Suite) TestAllReturns_Bad() {
 					redis.Req("PING", "b"+sij),
 				})
 				if check && good {
-					ok := s.IsType([]byte{}, res) && s.Equal(sij, string(res.([]byte)))
-					ok = ok && s.IsType([]byte{}, ress[0]) && s.Equal("a"+sij, string(ress[0].([]byte)))
-					ok = ok && s.IsType([]byte{}, ress[1]) && s.Equal("b"+sij, string(ress[1].([]byte)))
+					ok := s.IsType(redis.ByteResponse{}, res) && s.Equal(sij, string(res.(redis.ByteResponse).Val))
+					ok = ok && s.IsType(redis.ByteResponse{}, ress[0]) && s.Equal("a"+sij, string(ress[0].(redis.ByteResponse).Val))
+					ok = ok && s.IsType(redis.ByteResponse{}, ress[1]) && s.Equal("b"+sij, string(ress[1].(redis.ByteResponse).Val))
 					checks <- ok
 				} else if check && !good {
 					ok := s.IsType((*errorx.Error)(nil), res)
