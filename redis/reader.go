@@ -22,7 +22,7 @@ func (br *ByteResponse) Release() {
 }
 
 // ReadResponse reads single RESP answer from bufio.Reader
-func ReadResponse(b *bufio.Reader) interface{} {
+func ReadResponse(b *bufio.Reader, wrapBytes bool) interface{} {
 	line, isPrefix, err := b.ReadLine()
 	if err != nil {
 		return ErrIO.WrapWithNoMessage(err)
@@ -95,7 +95,11 @@ func ReadResponse(b *bufio.Reader) interface{} {
 			return ErrNoFinalRN.NewWithNoMessage()
 		}
 
-		return ByteResponse{Val: buf[:v]}
+		if wrapBytes {
+			return ByteResponse{Val: buf[:v]}
+		}
+
+		return buf[:v]
 	case '*':
 		var rerr *errorx.Error
 		if v, rerr = parseInt(line[1:]); rerr != nil {
@@ -106,7 +110,7 @@ func ReadResponse(b *bufio.Reader) interface{} {
 		}
 		result := make([]interface{}, v)
 		for i := int64(0); i < v; i++ {
-			result[i] = ReadResponse(b)
+			result[i] = ReadResponse(b, false)
 			if e, ok := result[i].(*errorx.Error); ok && !e.IsOfType(ErrResult) {
 				return e
 			}

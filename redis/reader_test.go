@@ -18,7 +18,7 @@ func lines2bufio(lines ...string) *bufio.Reader {
 }
 
 func readLines(lines ...string) interface{} {
-	return ReadResponse(lines2bufio(lines...))
+	return ReadResponse(lines2bufio(lines...), true)
 }
 
 func checkErrType(t *testing.T, res interface{}, kind *errorx.Type) bool {

@@ -11,7 +11,7 @@ test: testcluster testconn testredis
 	mv redis-$(REDIS_VERSION)/src/redis-server /tmp/redis-server
 	rm redis-$(REDIS_VERSION) -rf
 
-testredis: /tmp/redis-server/redis-server
+testredis:
 	PATH=/tmp/redis-server/:${PATH} go test ./redis
 
 testconn: /tmp/redis-server/redis-server

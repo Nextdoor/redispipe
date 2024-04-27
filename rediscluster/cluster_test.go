@@ -145,7 +145,7 @@ func (s *Suite) TestBasicOps() {
 		s.slotnode(i).DoSure("SET", slotkey("basic", key), key+"y")
 	}
 	for _, key := range s.keys {
-		s.Equal([]byte(key+"y"), scl.Do(s.ctx, "GET", slotkey("basic", key)))
+		s.Equal(redis.ByteResponse{Val: []byte(key + "y")}, scl.Do(s.ctx, "GET", slotkey("basic", key)))
 	}
 }
 
@@ -256,7 +256,7 @@ func (s *Suite) TestSendMany() {
 	}
 	ress = scl.SendMany(s.ctx, reqs)
 	for i, res := range ress {
-		s.Equal([]byte(s.keys[i]+"y"), res)
+		s.Equal(redis.ByteResponse{Val: []byte(s.keys[i] + "y")}, res)
 	}
 }
 

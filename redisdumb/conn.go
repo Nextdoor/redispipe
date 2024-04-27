@@ -62,9 +62,13 @@ func (c *Conn) Do(cmd string, args ...interface{}) interface{} {
 		req, err = redis.AppendRequest(nil, redis.Request{cmd, nil, args, nil})
 		if err == nil {
 			if _, err = c.C.Write(req); err == nil {
-				res := redis.ReadResponse(c.R)
+				res := redis.ReadResponse(c.R, true)
 				rerr := redis.AsErrorx(res)
 				if rerr == nil {
+					if br, ok := res.(redis.ByteResponse); ok {
+						return br.Val
+					}
+
 					return res
 				}
 				err = rerr
@@ -201,6 +205,6 @@ func Do(addr string, cmd string, args ...interface{}) interface{} {
 	if _, err = conn.Write(req); err != nil {
 		return redis.ErrIO.WrapWithNoMessage(err)
 	}
-	res := redis.ReadResponse(bufio.NewReader(conn))
+	res := redis.ReadResponse(bufio.NewReader(conn), false)
 	return res
 }
