@@ -616,7 +616,7 @@ func (conn *Connection) dial() error {
 	var res interface{}
 	// Password response
 	if conn.opts.Password != "" {
-		res = redis.ReadResponse(r)
+		res = redis.ReadResponse(r, false)
 		if err := redis.AsErrorx(res); err != nil {
 			connection.Close()
 			if !err.IsOfType(redis.ErrIO) {
@@ -626,7 +626,7 @@ func (conn *Connection) dial() error {
 		}
 	}
 	// PING Response
-	res = redis.ReadResponse(r)
+	res = redis.ReadResponse(r, false)
 	if err := redis.AsErrorx(res); err != nil {
 		connection.Close()
 		if !err.IsOfType(redis.ErrIO) {
@@ -642,7 +642,7 @@ func (conn *Connection) dial() error {
 	}
 	// SELECT DB Response
 	if conn.opts.DB != 0 {
-		res = redis.ReadResponse(r)
+		res = redis.ReadResponse(r, false)
 		if err := redis.AsErrorx(res); err != nil {
 			connection.Close()
 			if !err.IsOfType(redis.ErrIO) {
@@ -940,7 +940,7 @@ func (conn *Connection) reader(r *bufio.Reader, one *oneconn) {
 	for {
 		// try to read response from buffered socket.
 		// Here is IOTimeout handled as well (through deadlineIO wrapper around socket).
-		res = redis.ReadResponse(r)
+		res = redis.ReadResponse(r, true)
 		if rerr := redis.AsErrorx(res); rerr != nil {
 			if !rerr.IsOfType(redis.ErrResult) {
 				// it is not redis-sended error, then close connection

@@ -3,14 +3,26 @@ package redis
 import (
 	"bufio"
 	"bytes"
+	"github.com/joomcode/redispipe/redis/byteslice"
 	"io"
 	"strings"
 
 	"github.com/joomcode/errorx"
 )
 
+var readerPool byteslice.Pool
+
+type ByteResponse struct {
+	Val []byte
+}
+
+// Release puts Val byte slice back to pool for reuse. You must not use Val after this.
+func (br *ByteResponse) Release() {
+	readerPool.Put(br.Val)
+}
+
 // ReadResponse reads single RESP answer from bufio.Reader
-func ReadResponse(b *bufio.Reader) interface{} {
+func ReadResponse(b *bufio.Reader, wrapBytes bool) interface{} {
 	line, isPrefix, err := b.ReadLine()
 	if err != nil {
 		return ErrIO.WrapWithNoMessage(err)
@@ -72,14 +84,22 @@ func ReadResponse(b *bufio.Reader) interface{} {
 		if v < 0 {
 			return nil
 		}
-		buf := make([]byte, v+2, v+2)
+
+		buf := readerPool.Get(int(v + 2))
 		if _, err = io.ReadFull(b, buf); err != nil {
 			return ErrIO.WrapWithNoMessage(err)
 		}
+
 		if buf[v] != '\r' || buf[v+1] != '\n' {
+			readerPool.Put(buf)
 			return ErrNoFinalRN.NewWithNoMessage()
 		}
-		return buf[:v:v]
+
+		if wrapBytes {
+			return ByteResponse{Val: buf[:v]}
+		}
+
+		return buf[:v]
 	case '*':
 		var rerr *errorx.Error
 		if v, rerr = parseInt(line[1:]); rerr != nil {
@@ -90,7 +110,7 @@ func ReadResponse(b *bufio.Reader) interface{} {
 		}
 		result := make([]interface{}, v)
 		for i := int64(0); i < v; i++ {
-			result[i] = ReadResponse(b)
+			result[i] = ReadResponse(b, false)
 			if e, ok := result[i].(*errorx.Error); ok && !e.IsOfType(ErrResult) {
 				return e
 			}
