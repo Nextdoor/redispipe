@@ -215,11 +215,22 @@ func (s *shard) setReplicaInfo(res interface{}, n uint64) {
 	} else if n&1 == 0 {
 		str, ok := res.(string)
 		haserr = !(ok && str == "OK")
-	} else if buf, ok := res.([]byte); !ok {
-		haserr = true
-	} else if bytes.Contains(buf, []byte("master_link_status:down")) || bytes.Contains(buf, []byte("loading:1")) {
+	}
+
+	var buf []byte
+	switch v := res.(type) {
+	case []byte:
+		buf = v
+	case redis.ByteResponse:
+		buf = v.Val
+	default:
 		haserr = true
 	}
+
+	if bytes.Contains(buf, []byte("master_link_status:down")) || bytes.Contains(buf, []byte("loading:1")) {
+		haserr = true
+	}
+
 	for {
 		oldstate := atomic.LoadUint32(&s.good)
 		newstate := oldstate
