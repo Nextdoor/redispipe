@@ -364,7 +364,7 @@ func (s *Suite) TestFallbackToSlaveStop() {
 
 	s.cl.Node[0].Stop()
 	// test read from replica
-	s.Equal([]byte("1"), sconn.Do(s.ctx, "GET", key))
+	s.Equal(redis.ByteResponse{Val: []byte("1")}, sconn.Do(s.ctx, "GET", key))
 
 	// wait replica becomes master
 	s.cl.WaitClusterOk()
@@ -394,7 +394,7 @@ func (s *Suite) TestFallbackToSlaveTimeout() {
 
 	s.cl.Node[0].Pause()
 	// test read from replica
-	s.Equal([]byte("1"), sconn.Do(s.ctx, "GET", key))
+	s.Equal(redis.ByteResponse{Val: []byte("1")}, sconn.Do(s.ctx, "GET", key))
 	s.Contains(DebugEvents(), "retry")
 
 	// wait replica becomes master
@@ -938,7 +938,7 @@ func (s *Suite) TestFallbackTimeoutLatency() {
 
 	s.cl.Node[0].Pause()
 	// test read from replica
-	s.Equal([]byte("1"), sconn.Do(s.ctx, "GET", key))
+	s.Equal(redis.ByteResponse{Val: []byte("1")}, sconn.Do(s.ctx, "GET", key))
 	s.Contains(DebugEvents(), "retry")
 
 	// wait replica becomes master
