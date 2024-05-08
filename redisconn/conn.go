@@ -27,8 +27,9 @@ const (
 	connConnected    = 2
 	connClosed       = 3
 
-	defaultIOTimeout  = 1 * time.Second
-	defaultWritePause = 150 * time.Microsecond
+	defaultIOTimeout      = 1 * time.Second
+	defaultWritePause     = 150 * time.Microsecond
+	defaultReadBufferSize = 128 * 1024
 
 	PingMaxLatency         = 10 * time.Second
 	PingLatencyGranularity = 10 * time.Microsecond
@@ -80,6 +81,8 @@ type Opts struct {
 	ScriptMode bool
 	// CircuitBreakerFactory - factory to retrieve a CircuitBreaker from
 	CircuitBreakerFactory CircuitBreakerFactoryI
+	// ReadBufferSize - controls how big the read buffer is.
+	ReadBufferSize int
 }
 
 // Connection is implementation of redis.Sender which represents single connection to single redis instance.
@@ -176,6 +179,10 @@ func Connect(ctx context.Context, addr string, opts Opts) (conn *Connection, err
 		conn.logger = DefaultLogger{}
 	} else {
 		conn.logger = conn.opts.LoggerFactory.NewLogger(conn)
+	}
+
+	if conn.opts.ReadBufferSize <= 0 {
+		conn.opts.ReadBufferSize = defaultReadBufferSize
 	}
 
 	conn.storePingLatency(0)
@@ -587,7 +594,7 @@ func (conn *Connection) dial() error {
 	}
 
 	dc := newDeadlineIO(connection, conn.opts.IOTimeout)
-	r := bufio.NewReaderSize(dc, 128*1024)
+	r := bufio.NewReaderSize(dc, conn.opts.ReadBufferSize)
 
 	// Password request
 	var req []byte
