@@ -65,6 +65,8 @@ type Opts struct {
 	// TCPKeepAlive - KeepAlive parameter for net.Dialer
 	// default is IOTimeout / 3
 	TCPKeepAlive time.Duration
+	// TCPNoDelay - Sets TCP_NODELAY when connecting via tcp to server
+	TCPNoDelay bool
 	// Handle is returned with Connection.Handle()
 	Handle interface{}
 	// WritePause - write loop pauses for this time to collect more requests.
@@ -589,6 +591,14 @@ func (conn *Connection) dial() error {
 		KeepAlive:     conn.opts.TCPKeepAlive,
 	}
 	connection, err = dialer.DialContext(conn.ctx, network, address)
+
+	if tcpConn, ok := connection.(*net.TCPConn); ok {
+		// Configure TCP_NODELAY
+		if err := tcpConn.SetNoDelay(conn.opts.TCPNoDelay); err != nil {
+			return conn.errWrap(ErrConnSetup, err)
+		}
+	}
+
 	if err != nil {
 		return conn.errWrap(ErrDial, err)
 	}
