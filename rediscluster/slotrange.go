@@ -223,6 +223,8 @@ func (s *shard) setReplicaInfo(res interface{}, n uint64) {
 		buf = v
 	case redis.ByteResponse:
 		buf = v.Val
+	case string:
+		break
 	default:
 		haserr = true
 	}
