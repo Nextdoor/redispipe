@@ -2,7 +2,6 @@ package testbed
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 	"time"
 
@@ -85,7 +84,6 @@ func (cl *Cluster) WaitClusterOk() {
 	for !cl.ClusterOk() {
 		if i++; i == 15 {
 			cl.AttemptFailover()
-			fmt.Println("did failover")
 		}
 		time.Sleep(1000 * time.Millisecond)
 	}
@@ -177,7 +175,6 @@ func (cl *Cluster) ClusterOk() bool {
 	}
 
 	if assignedNodes < 6 && assignedNodes != len(cl.Node)-len(stopped) {
-		fmt.Println("running nodes ver live nodes error", len(cl.Node)-len(stopped), assignedNodes)
 		return false
 	}
 
