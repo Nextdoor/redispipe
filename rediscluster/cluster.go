@@ -103,6 +103,17 @@ type Opts struct {
 	// ForceLowestLatency - When LatencyOrientedRR is used, force using the lowest latency instead
 	// node instead of preference.
 	ForceLowestLatency bool
+
+	// AvailabilityZone - availability zone the client runs in (for example, "us-west-2a").
+	// When set, requests that are allowed to be served by replicas (MasterAndSlaves, PreferSlaves,
+	// ForceMasterAndSlaves and ForcePreferSlaves policies) prefer nodes of the shard that report
+	// the same `availability_zone` in their INFO response (Valkey 8+, AWS ElastiCache).
+	// Master is preferred as well if it is in this zone.
+	// Among nodes in the same zone the regular rules apply (policy weights, LatencyOrientedRR).
+	// If no node of the shard is in this zone, or none of them has a live connection,
+	// selection falls back to the regular algorithm over all nodes of the shard.
+	// Write requests still go to master.
+	AvailabilityZone string
 }
 
 // Cluster is implementation of redis.Sender which represents connection to redis-cluster.
@@ -150,7 +161,9 @@ type clusterConfig struct {
 type shard struct {
 	rr      uint32
 	good    uint32
+	inZone  uint32 // bitmask of nodes located in client's availability zone (see Opts.AvailabilityZone)
 	addr    []string
+	zone    string // client's availability zone nodes are compared against; empty if not configured
 	weights atomic.Pointer[[]shardWeight]
 }
 type shardMap map[uint16]*shard

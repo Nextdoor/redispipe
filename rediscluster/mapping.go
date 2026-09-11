@@ -244,7 +244,8 @@ func (c *Cluster) connForSlot(slot uint16, policy ReplicaPolicyEnum, seen []*red
 		if latencyAware != 0 && c.opts.ForceLowestLatency {
 			// Find highest weight healthy node
 
-			for _, needState := range []int{needConnected, mayBeConnected} {
+			for _, attempt := range shard.attempts(health) {
+				needState, health := attempt.needState, attempt.health
 				for _, weight := range weights {
 					// Check if node is unhealthy
 					if health&(1<<uint(weight.index)) == 0 {
@@ -285,19 +286,21 @@ func (c *Cluster) connForSlot(slot uint16, policy ReplicaPolicyEnum, seen []*red
 			weights := ws[:len(weights)]
 
 			health := atomic.LoadUint32(&shard.good) // load health information
-			healthWeight := uint32(0)
-			for i, w := range weights {
-				if health&(1<<uint(i)) == 0 {
-					continue
-				}
-				healthWeight += w
-			}
 
 			off := c.opts.RoundRobinSeed.Current()
 
 			// First, we try already established connections.
 			// If no one found, then connections thar are connecting at the moment are tried.
-			for _, needState := range []int{needConnected, mayBeConnected} {
+			for _, attempt := range shard.attempts(health) {
+				needState, health := attempt.needState, attempt.health
+				healthWeight := uint32(0)
+				for i, w := range weights {
+					if health&(1<<uint(i)) == 0 {
+						continue
+					}
+					healthWeight += w
+				}
+
 				mask, maskWeight := health, healthWeight
 				// a bit of quadratic algorithms
 				for mask != 0 && conn == nil {
@@ -338,6 +341,30 @@ func (c *Cluster) connForSlot(slot uint16, policy ReplicaPolicyEnum, seen []*red
 	}
 
 	return conn, nil
+}
+
+// attempt is a step of connection search for MasterAndSlaves/PreferSlaves policies:
+// nodes to choose from and state their connections should be in.
+type attempt struct {
+	needState int
+	health    uint32
+}
+
+// attempts returns steps of connection search in order of preference among healthy nodes of the shard.
+// Established connections are preferred over connecting ones. If client's availability zone is configured
+// (Opts.AvailabilityZone), nodes in this zone are preferred over the rest of the shard.
+// Without configured zone, zone steps have no nodes and search degrades to the two state steps.
+func (s *shard) attempts(health uint32) [4]attempt {
+	var inZone uint32
+	if s.zone != "" {
+		inZone = atomic.LoadUint32(&s.inZone) & health
+	}
+	return [4]attempt{
+		{needConnected, inZone},
+		{needConnected, health &^ inZone},
+		{mayBeConnected, inZone},
+		{mayBeConnected, health &^ inZone},
+	}
 }
 
 func (c *Cluster) connForAddress(addr string) *redisconn.Connection {

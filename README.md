@@ -237,6 +237,8 @@ func Example_usage() {
 			Handle: myhandle,                  // custom data, useful for custom logging
 			// Other parameters (usually, no need to change):
 			// ConnsPerHost, ConnHostPolicy, CheckInterval, MovedRetries, WaitToMigrate, RoundRobinSeed,
+			// AvailabilityZone: "us-west-2a", // prefer nodes in client's zone for MasterAndSlaves/PreferSlaves
+			//                                 // policies (Valkey 8+, AWS ElastiCache); fall back to others
 		}
 		addresses := []string{"127.0.0.1:20001"} // one or more of cluster addresses
 		cluster, err := rediscluster.NewCluster(ctx, addresses, opts)
