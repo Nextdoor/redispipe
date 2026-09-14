@@ -8,7 +8,7 @@ import (
 )
 
 // Binary is a path to redis-server
-var Binary = func() string { p, _ := exec.LookPath("redis-server"); return p }()
+var Binary = func() string { p, _ := exec.LookPath("valkey-server"); return p }()
 
 // Dir is temporary directory where redis will run.
 var Dir = ""
