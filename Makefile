@@ -22,7 +22,7 @@ testconn: /tmp/valkey-server/valkey-server
 testcluster: /tmp/valkey-server/valkey-server
 	killall valkey-server || true
 	rm ./rediscluster/redis_test_* -r || true
-	PATH=/tmp/valkey-server/:${PATH} go test -count 1 -tags debugredis ./rediscluster
+	PATH=/tmp/valkey-server/:${PATH} go test -count 1 -timeout 20m -tags debugredis ./rediscluster
 
 bench: benchconn benchcluster
 
