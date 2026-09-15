@@ -1,6 +1,7 @@
 package rediscluster_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log"
@@ -1120,4 +1121,353 @@ Loop:
 		}
 	}
 	s.Equal(N, cnt, "Not all goroutines finished")
+}
+
+// constSeed is RoundRobinSeed which always returns the same value.
+type constSeed uint32
+
+func (c constSeed) Current() uint32 { return uint32(c) }
+
+// getCalls returns number of GET commands served by the node since its last CONFIG RESETSTAT.
+func (s *Suite) getCalls(n *testbed.Node) int {
+	const prefix = "cmdstat_get:calls="
+	buf, ok := n.DoSure("INFO", "commandstats").([]byte)
+	s.r().True(ok)
+	i := bytes.Index(buf, []byte(prefix))
+	if i < 0 {
+		return 0
+	}
+	buf = buf[i+len(prefix):]
+	buf = buf[:bytes.IndexByte(buf, ',')]
+	v, err := strconv.Atoi(string(buf))
+	s.r().Nil(err)
+	return v
+}
+
+// checkReads checks that reads of key are served by want node only.
+func (s *Suite) checkReads(sconn redis.SyncCtx, key string, want *testbed.Node) {
+	want.DoSure("CONFIG RESETSTAT")
+	const N = 10
+	for i := 0; i < N; i++ {
+		s.Equal(redis.ByteResponse{Val: []byte("1")}, sconn.Do(s.ctx, "GET", key))
+	}
+	s.Equal(N, s.getCalls(want))
+}
+
+func (s *Suite) TestAvailabilityZone() {
+	// availability-zone config is supported by Valkey 8+ (and AWS ElastiCache); skip on older servers.
+	if err, ok := s.cl.Node[0].Do("CONFIG SET", "availability-zone", "").(error); ok {
+		s.T().Skipf("server does not support availability-zone: %v", err)
+	}
+	setZones := func(zones ...string) {
+		for i, zone := range zones {
+			s.cl.Node[i].DoSure("CONFIG SET", "availability-zone", zone)
+		}
+	}
+	defer setZones("", "", "", "", "", "")
+	// masters are in az-a, replicas are in az-b
+	zones := []string{"az-a", "az-a", "az-a", "az-b", "az-b", "az-b"}
+	setZones(zones...)
+
+	master, replica := &s.cl.Node[0], &s.cl.Node[3]
+	key := slotkey("zone", s.keys[1]) // slot 1 belongs to Node[0], which is replicated by Node[3]
+
+	// connect creates cluster with zone preference and checks that reads of key are served by want node
+	connect := func(zone string, seed RoundRobinSeed, want *testbed.Node) (*Cluster, redis.SyncCtx) {
+		opts := longcheckopts
+		opts.RoundRobinSeed = seed
+		opts.AvailabilityZone = zone
+		cl, err := NewCluster(s.ctx, []string{"127.0.0.1:43210"}, opts)
+		s.r().Nil(err)
+		sconn := redis.SyncCtx{cl.WithPolicy(MasterAndSlaves)}
+		s.Equal("OK", sconn.Do(s.ctx, "SET", key, "1"))
+		// let INFO responses with availability_zone arrive; stay away from the reload tick,
+		// since replica health flips for a moment while READONLY+INFO responses are being processed
+		time.Sleep(opts.CheckInterval * 3 / 2)
+		s.checkReads(sconn, key, want)
+		return cl, sconn
+	}
+
+	// Sanity check of seeds: without zone preference seed 0 always picks master, seed 1 always picks replica.
+	cl, _ := connect("", alwaysZero{}, master)
+	cl.Close()
+	cl, _ = connect("", constSeed(1), replica)
+	cl.Close()
+
+	// client is in replica's zone: reads go to replica
+	cl, sconn := connect("az-b", alwaysZero{}, replica)
+	// replica is down: reads fall back to master
+	replica.Stop()
+	s.checkReads(sconn, key, master)
+	cl.Close()
+	replica.Start()
+	s.cl.WaitClusterOk()
+	setZones(zones...) // restarted server has lost its zone
+
+	// client is in master's zone: reads go to master
+	cl, _ = connect("az-a", constSeed(1), master)
+	cl.Close()
+
+	// client's zone matches no node: regular selection
+	cl, _ = connect("az-z", constSeed(1), replica)
+	cl.Close()
+}
+
+// zoneStats counts successful GET responses per shard and node address.
+// It is installed as LoggerFactory of cluster's connections to learn which node served each request.
+type zoneStats struct {
+	mu    sync.Mutex
+	calls map[int]map[string]int // shard -> node address -> number of successful GETs
+}
+
+func (z *zoneStats) NewLogger(*redisconn.Connection) redisconn.Logger { return z }
+
+func (z *zoneStats) Report(conn *redisconn.Connection, event redisconn.LogEvent) {
+	redisconn.DefaultLogger{}.Report(conn, event)
+}
+
+func (z *zoneStats) ReqStat(conn *redisconn.Connection, req redisconn.Request, res interface{}, _ int64) {
+	if req.Cmd != "GET" || redis.AsError(res) != nil {
+		return
+	}
+	slot, ok := redisclusterutil.ReqSlot(req)
+	if !ok {
+		return
+	}
+	shard := slot2node(int(slot))
+	z.mu.Lock()
+	if z.calls[shard] == nil {
+		z.calls[shard] = map[string]int{}
+	}
+	z.calls[shard][conn.Addr()]++
+	z.mu.Unlock()
+}
+
+// take returns collected counters and starts counting from scratch.
+func (z *zoneStats) take() map[int]map[string]int {
+	z.mu.Lock()
+	defer z.mu.Unlock()
+	calls := z.calls
+	z.calls = map[int]map[string]int{}
+	return calls
+}
+
+// zoneClient is a cluster client living in some availability zone, which knows nodes serving its reads.
+type zoneClient struct {
+	zone  string
+	cl    *Cluster
+	sconn redis.SyncCtx
+	stats *zoneStats
+}
+
+func (s *Suite) newZoneClient(zone string) *zoneClient {
+	stats := &zoneStats{calls: map[int]map[string]int{}}
+	opts := clustopts
+	opts.Name = "zone-" + zone
+	opts.AvailabilityZone = zone
+	opts.HostOpts.LoggerFactory = stats
+	// Topology is reloaded only when test asks for it (and on errors).
+	// Otherwise reload could coincide with reads and blur the picture.
+	opts.CheckInterval = 10 * time.Minute
+	cl, err := NewCluster(s.ctx, []string{"127.0.0.1:43210"}, opts)
+	s.r().Nil(err)
+	return &zoneClient{zone: zone, cl: cl, sconn: redis.SyncCtx{cl.WithPolicy(MasterAndSlaves)}, stats: stats}
+}
+
+// reads performs concurrent GETs of keys from all shards, checks results and
+// returns nodes which served them, per shard.
+func (s *Suite) reads(zc *zoneClient, prefix string) map[int]map[string]int {
+	zc.stats.take()
+	const N, K = 20, 50
+	var wg sync.WaitGroup
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < K; j++ {
+				skey := s.keys[(i*K+j)*127%NumSlots]
+				res := zc.sconn.Do(s.ctx, "GET", slotkey(prefix, skey))
+				s.Equal(redis.ByteResponse{Val: []byte(skey)}, res, "client in zone %q", zc.zone)
+			}
+		}(i)
+	}
+	wg.Wait()
+	return zc.stats.take()
+}
+
+// servedBy asserts that all reads of the shard were served by this node only.
+func (s *Suite) servedBy(calls map[int]map[string]int, shard int, node int) {
+	s.servedWithin(calls, shard, node)
+	s.Len(calls[shard], 1, "shard %d served by %v, want %s only", shard, calls[shard], s.cl.Node[node].Addr())
+}
+
+// servedWithin asserts that reads of the shard were served by these nodes only (not necessarily by all of them).
+func (s *Suite) servedWithin(calls map[int]map[string]int, shard int, nodes ...int) {
+	want := make([]string, len(nodes))
+	for i, n := range nodes {
+		want[i] = s.cl.Node[n].Addr()
+	}
+	s.NotEmpty(calls[shard], "no reads of shard %d were served", shard)
+	for addr := range calls[shard] {
+		s.Contains(want, addr, "shard %d served by %v, want %v", shard, calls[shard], want)
+	}
+}
+
+// waitSlotsViews waits until every running node lists every running node in its CLUSTER SLOTS response.
+// Views of nodes converge with some delay: for example, a replica is not listed until the node
+// learns its non-zero replication offset through gossip.
+func (s *Suite) waitSlotsViews() {
+	running := 0
+	for i := range s.cl.Node {
+		if s.cl.Node[i].RunningNow() {
+			running++
+		}
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		converged := true
+		for i := range s.cl.Node {
+			if !s.cl.Node[i].RunningNow() {
+				continue
+			}
+			listed := 0
+			if ranges, err := redisclusterutil.ParseSlotsInfo(s.cl.Node[i].Do("CLUSTER SLOTS")); err == nil {
+				for _, r := range ranges {
+					listed += len(r.Addrs)
+				}
+			}
+			if listed != running {
+				converged = false
+				break
+			}
+		}
+		if converged {
+			return
+		}
+		s.r().True(time.Now().Before(deadline), "CLUSTER SLOTS views did not converge")
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func (s *Suite) TestAllReturns_AvailabilityZone() {
+	// availability-zone config is supported by Valkey 8+ (and AWS ElastiCache); skip on older servers.
+	if err, ok := s.cl.Node[0].Do("CONFIG SET", "availability-zone", "").(error); ok {
+		s.T().Skipf("server does not support availability-zone: %v", err)
+	}
+
+	// shard 0: master Node[0] in az-a, replica Node[3] in az-b
+	// shard 1: master Node[1] in az-b, replica Node[4] in az-a
+	// shard 2: master Node[2] in az-a, replica Node[5] in az-c
+	zones := []string{"az-a", "az-b", "az-a", "az-b", "az-a", "az-c"}
+	for i, zone := range zones {
+		node := &s.cl.Node[i]
+		node.DoSure("CONFIG SET", "availability-zone", zone)
+		node.Args = append(node.Args, "--availability-zone", zone) // keep zone over restarts
+	}
+	defer func() {
+		for i := range zones {
+			node := &s.cl.Node[i]
+			node.Args = node.Args[:len(node.Args)-2]
+			node.Do("CONFIG SET", "availability-zone", "")
+		}
+	}()
+	// return master role to Node[0] if test left it as replica
+	defer func() {
+		info, _ := s.cl.Node[0].Do("INFO", "replication").([]byte)
+		if bytes.Contains(info, []byte("role:slave")) {
+			s.cl.Node[3].Stop()
+			s.cl.WaitClusterOk()
+			s.cl.Node[3].Start()
+			s.cl.WaitClusterOk()
+		}
+	}()
+
+	a, b, c, noZone := s.newZoneClient("az-a"), s.newZoneClient("az-b"), s.newZoneClient("az-c"), s.newZoneClient("")
+	clients := []*zoneClient{a, b, c, noZone}
+	for _, zc := range clients {
+		defer zc.cl.Close()
+	}
+	// reload asks clients to learn new topology and waits for INFO responses with zones.
+	// Clients ask arbitrary known node for CLUSTER SLOTS, so all nodes should agree on topology first.
+	reload := func() {
+		s.waitSlotsViews()
+		for _, zc := range clients {
+			zc.cl.ForceReloading()
+		}
+		time.Sleep(time.Second)
+	}
+
+	s.fillMany(noZone.sconn, "zones")
+	// Clients could be created before nodes agreed on topology (replicas of empty masters are not listed
+	// in CLUSTER SLOTS until their replication offset is known). Periodic reload heals it in production,
+	// here it is requested explicitly.
+	reload()
+
+	// Everything is healthy: reads go to the node in client's zone,
+	// or to any node of the shard if there is no node in client's zone.
+	calls := s.reads(a, "zones")
+	s.servedBy(calls, 0, 0)
+	s.servedBy(calls, 1, 4)
+	s.servedBy(calls, 2, 2)
+	calls = s.reads(b, "zones")
+	s.servedBy(calls, 0, 3)
+	s.servedBy(calls, 1, 1)
+	s.servedWithin(calls, 2, 2, 5)
+	calls = s.reads(c, "zones")
+	s.servedWithin(calls, 0, 0, 3)
+	s.servedWithin(calls, 1, 1, 4)
+	s.servedBy(calls, 2, 5)
+	calls = s.reads(noZone, "zones")
+	s.servedWithin(calls, 0, 0, 3)
+	s.servedWithin(calls, 1, 1, 4)
+	s.servedWithin(calls, 2, 2, 5)
+
+	// Replica in az-b is stopped: az-b client falls back to master of shard 0, az-a client is not affected.
+	s.cl.Node[3].Stop()
+	calls = s.reads(b, "zones")
+	s.servedBy(calls, 0, 0)
+	s.servedBy(calls, 1, 1)
+	calls = s.reads(a, "zones")
+	s.servedBy(calls, 0, 0)
+	s.servedBy(calls, 1, 4)
+	// Replica is back: az-b client returns to it.
+	s.cl.Node[3].Start()
+	s.cl.WaitClusterOk()
+	reload()
+	calls = s.reads(b, "zones")
+	s.servedBy(calls, 0, 3)
+	s.servedBy(calls, 1, 1)
+
+	// Replica in az-a is paused: az-a client falls back to master of shard 1 after timeouts.
+	s.cl.Node[4].Pause()
+	calls = s.reads(a, "zones")
+	s.servedBy(calls, 0, 0)
+	s.servedBy(calls, 1, 1)
+	// Replica is back: az-a client returns to it.
+	s.cl.Node[4].Resume()
+	s.cl.WaitClusterOk()
+	reload()
+	calls = s.reads(a, "zones")
+	s.servedBy(calls, 0, 0)
+	s.servedBy(calls, 1, 4)
+
+	// Master of shard 0 (az-a) is stopped and replica in az-b is promoted:
+	// az-a client has no node in its zone any more and uses the new master.
+	s.cl.Node[0].Stop()
+	s.cl.WaitClusterOk()
+	reload()
+	calls = s.reads(a, "zones")
+	s.servedBy(calls, 0, 3)
+	calls = s.reads(b, "zones")
+	s.servedBy(calls, 0, 3)
+	// Old master returns as replica: az-a client prefers it over the master in az-b.
+	s.cl.Node[0].Start()
+	s.cl.WaitClusterOk()
+	reload()
+	calls = s.reads(a, "zones")
+	s.servedBy(calls, 0, 0)
+	calls = s.reads(b, "zones")
+	s.servedBy(calls, 0, 3)
+	calls = s.reads(noZone, "zones")
+	s.servedWithin(calls, 0, 0, 3)
 }

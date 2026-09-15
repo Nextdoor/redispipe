@@ -118,6 +118,7 @@ func (c *Cluster) updateMappings(slotRanges []redisclusterutil.SlotsRange) {
 			shard := &shard{
 				addr:    addrs,
 				good:    (uint32(1) << uint(len(addrs))) - 1,
+				zone:    c.opts.AvailabilityZone,
 				weights: atomic.Pointer[[]shardWeight]{},
 			}
 			newConfig.shards[shardno] = shard
@@ -224,6 +225,7 @@ func (s *shard) setReplicaInfo(res interface{}, n uint64) {
 	case redis.ByteResponse:
 		buf = v.Val
 	case string:
+		// READONLY reply ("OK" or otherwise): health was already decided above, no INFO payload to scan
 		break
 	default:
 		haserr = true
@@ -248,6 +250,58 @@ func (s *shard) setReplicaInfo(res interface{}, n uint64) {
 			break
 		}
 	}
+
+	// odd n is INFO response: learn whether replica is in client's availability zone
+	if n&1 == 1 && s.zone != "" {
+		setBit(&s.inZone, uint(n/2), string(infoField(buf, "availability_zone")) == s.zone)
+	}
+}
+
+// setMasterInfo handles responses to READWRITE+INFO batch sent to master's connections by setConnRoles
+// when Opts.AvailabilityZone is set. Only master's zone is learned from it: master's health is not tracked.
+func (s *shard) setMasterInfo(res interface{}, n uint64) {
+	if n&1 == 0 {
+		return // READWRITE response
+	}
+	var buf []byte
+	switch v := res.(type) {
+	case []byte:
+		buf = v
+	case redis.ByteResponse:
+		buf = v.Val
+	}
+	setBit(&s.inZone, 0, s.zone != "" && string(infoField(buf, "availability_zone")) == s.zone)
+}
+
+// setBit atomically sets or clears idx-th bit of mask.
+func setBit(mask *uint32, idx uint, on bool) {
+	bit := uint32(1) << idx
+	for {
+		oldstate := atomic.LoadUint32(mask)
+		newstate := oldstate &^ bit
+		if on {
+			newstate |= bit
+		}
+		if newstate == oldstate || atomic.CompareAndSwapUint32(mask, oldstate, newstate) {
+			return
+		}
+	}
+}
+
+// infoField returns value of "name:value" line of INFO response, or nil if there is no such line.
+func infoField(info []byte, name string) []byte {
+	for len(info) > 0 {
+		line := info
+		if i := bytes.IndexByte(info, '\n'); i >= 0 {
+			line, info = info[:i], info[i+1:]
+		} else {
+			info = nil
+		}
+		if len(line) > len(name) && line[len(name)] == ':' && string(line[:len(name)]) == name {
+			return bytes.TrimRight(line[len(name)+1:], "\r")
+		}
+	}
+	return nil
 }
 
 func (cfg *clusterConfig) setConnRoles() {
@@ -258,11 +312,16 @@ func (cfg *clusterConfig) setConnRoles() {
 				continue
 			}
 			for _, conn := range node.conns {
-				if i == 0 {
-					conn.Send(Request{"READWRITE", nil, nil, nil}, nil, 0)
-				} else {
+				switch {
+				case i != 0:
 					conn.SendBatch([]Request{{"READONLY", nil, nil, nil}, {"INFO", nil, nil, nil}},
 						redis.FuncFuture(sh.setReplicaInfo), uint64(i*2))
+				case sh.zone != "":
+					// master's availability zone is needed to prefer it for clients in the same zone
+					conn.SendBatch([]Request{{"READWRITE", nil, nil, nil}, {"INFO", nil, []interface{}{"server"}, nil}},
+						redis.FuncFuture(sh.setMasterInfo), 0)
+				default:
+					conn.Send(Request{"READWRITE", nil, nil, nil}, nil, 0)
 				}
 			}
 		}
